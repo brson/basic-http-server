@@ -4,6 +4,10 @@ extern crate rotor_stream;
 extern crate rotor_http;
 extern crate mio;
 extern crate time;
+extern crate threadpool;
+extern crate num_cpus;
+extern crate net2;
+extern crate libc;
 
 use clap::App;
 use mio::tcp::TcpListener;
@@ -19,7 +23,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::net::SocketAddr;
+use std::os::unix::io::AsRawFd;
 use time::{Duration, SteadyTime};
+use threadpool::ThreadPool;
 
 fn main() {
     if let Err(e) = run() {
@@ -33,38 +40,64 @@ fn run() -> Result<(), Error> {
         .about("A basic HTTP file server")
         .args_from_usage(
             "[ROOT] 'Sets the root dir (default \".\")'
-             -a --addr=[ADDR] 'Sets the IP:PORT combination (default \"127.0.0.1:4000\")'")
+             -a --addr=[ADDR] 'Sets the IP:PORT combination (default \"127.0.0.1:4000\")'
+             -t --threads=[THREADS] 'Sets the number of server threads (default 4)'")
         .get_matches();
 
     let root_dir = matches.value_of("ROOT").unwrap_or(".");
     let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
+    let num_rotor_threads = match matches.value_of("THREADS") {
+        Some(t) => { try!(t.parse()) }
+        None => 4
+    };
 
     let root_dir = PathBuf::from(root_dir);
-    let addr = try!(addr.parse());
+    let addr: SocketAddr = try!(addr.parse());
 
-    // Our custom server context
-    let context = ServerContext {
-        root_dir: root_dir,
-    };
-    // The mio event loop
-    let mut event_loop = try!(rotor::EventLoop::new());
-    // Rotor's mio event loop handler
-    let mut handler = rotor::Handler::new(context, &mut event_loop);
-    let listener = try!(TcpListener::bind(&addr));
+    let thread_pool = ThreadPool::new(400);
 
-    try!(handler.add_machine_with(&mut event_loop, |scope| {
-        Accept::<Stream<Parser<ServerState, _>>, _>::new(listener, scope)
-    }));
+    for _ in 0..num_rotor_threads {
+        let root_dir = root_dir.clone();
+        let addr = addr.clone();
+        let thread_pool = thread_pool.clone();
+        thread::spawn(move || {
+            // Our custom server context
+            let context = ServerContext {
+                root_dir: root_dir,
+                thread_pool: thread_pool,
+            };
 
-    println!("listening on {}", addr);
+            let sock = net2::TcpBuilder::new_v4().unwrap();
+            set_reuse_port(&sock);
+            sock.bind(&addr).unwrap();
 
-    try!(event_loop.run(&mut handler));
+            let listener = sock.listen(4096).unwrap();
+            let listener = TcpListener::from_listener(listener, &addr).unwrap();
+
+            // The mio event loop
+            let mut event_loop = rotor::EventLoop::new().unwrap();
+            // Rotor's mio event loop handler
+            let mut handler = rotor::Handler::new(context, &mut event_loop);
+
+            handler.add_machine_with(&mut event_loop, |scope| {
+                Accept::<Stream<Parser<ServerState, _>>, _>::new(listener, scope)
+            }).unwrap();
+
+            println!("listening on {}", addr);
+
+            event_loop.run(&mut handler).unwrap();
+        });
+   }
+
+    let (_tx, rx) = mpsc::channel::<()>();
+    rx.recv().unwrap();
 
     Ok(())
 }
 
 struct ServerContext {
-    root_dir: PathBuf
+    root_dir: PathBuf,
+    thread_pool: ThreadPool
 }
 
 impl Context for ServerContext { }
@@ -116,8 +149,6 @@ impl Server for ServerState {
             return None;
         };
 
-        println!("requested file {:?}", path);
-
         // We're going to do the file I/O in another thread.
         // This channel will transmit info from the I/O thread to the
         // rotor machine.
@@ -125,7 +156,7 @@ impl Server for ServerState {
         // This rotor Notifier will trigger a wakeup.
         let notifier = scope.notifier();
 
-        thread::spawn(move || {
+        scope.thread_pool.execute(move || {
             match File::open(path) {
                 Ok(mut file) => {
                     let mut buf = Vec::new();
@@ -263,6 +294,16 @@ fn local_path_for_request(head: Head, root_dir: &Path) -> Option<PathBuf> {
 }
 
 
+fn set_reuse_port(sock: &net2::TcpBuilder) {
+    let one = 1i32;
+    unsafe {
+        assert!(libc::setsockopt(
+            sock.as_raw_fd(), libc::SOL_SOCKET,
+            libc::SO_REUSEPORT,
+            &one as *const libc::c_int as *const libc::c_void, 4) == 0);
+    }
+}
+
 fn internal_server_error(response: &mut Response) {
     response.status(StatusCode::InternalServerError);
     response.add_header(ContentLength(0)).unwrap();
@@ -274,7 +315,8 @@ fn internal_server_error(response: &mut Response) {
 enum Error {
     IoError(io::Error),
     AddrParseError(std::net::AddrParseError),
-    StdError(Box<StdError>)
+    StdError(Box<StdError>),
+    ParseIntError(std::num::ParseIntError),
 }
 
 impl StdError for Error {
@@ -283,6 +325,7 @@ impl StdError for Error {
             Error::IoError(ref e) => e.description(),
             Error::AddrParseError(ref e) => e.description(),
             Error::StdError(ref e) => e.description(),
+            Error::ParseIntError(ref e) => e.description(),
         }
     }
     fn cause(&self) -> Option<&StdError> {
@@ -290,6 +333,7 @@ impl StdError for Error {
             Error::IoError(ref e) => Some(e),
             Error::AddrParseError(ref e) => Some(e),
             Error::StdError(ref e) => Some(&**e),
+            Error::ParseIntError(ref e) => Some(e),
         }
     }
 }
@@ -300,6 +344,7 @@ impl std::fmt::Display for Error {
             Error::IoError(ref e) => e.fmt(fmt),
             Error::AddrParseError(ref e) => e.fmt(fmt),
             Error::StdError(ref e) => e.fmt(fmt),
+            Error::ParseIntError(ref e) => e.fmt(fmt),
         }
     }
 }
@@ -319,5 +364,11 @@ impl From<std::net::AddrParseError> for Error {
 impl From<Box<StdError>> for Error {
     fn from(e: Box<StdError>) -> Error {
         Error::StdError(e)
+    }
+}
+
+impl From<std::num::ParseIntError> for Error {
+    fn from(e: std::num::ParseIntError) -> Error {
+        Error::ParseIntError(e)
     }
 }

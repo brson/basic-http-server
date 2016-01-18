@@ -10,3 +10,7 @@ rotor-stream = {git="git://github.com/tailhook/rotor-stream", rev="3b703b2"}
 mio = "0.5"
 time = "0.1"
 clap = "1.5.5"
+threadpool = "0.2.1"
+num_cpus = "0.2.10"
+net2 = "0.2"
+libc = "0.2.4"

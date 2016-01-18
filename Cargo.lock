@@ -3,10 +3,14 @@ name = "basic-http-server"
 version = "0.1.0"
 dependencies = [
  "clap 1.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "mio 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "net2 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num_cpus 0.2.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "rotor 0.4.0 (git+git://github.com/tailhook/rotor?rev=cde4393)",
  "rotor-http 0.4.0 (git+git://github.com/brson/rotor-http?rev=ce68753)",
  "rotor-stream 0.3.0 (git+git://github.com/tailhook/rotor-stream?rev=3b703b2)",
+ "threadpool 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.34 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -410,6 +414,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "rand 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "threadpool"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "time"
