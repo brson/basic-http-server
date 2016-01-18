@@ -1,0 +1,12 @@
+[package]
+name = "basic-http-server"
+version = "0.1.0"
+authors = ["Brian Anderson <banderson@mozilla.com>"]
+
+[dependencies]
+rotor = {git="git://github.com/tailhook/rotor", rev="cde4393"}
+rotor-http = {git="git://github.com/brson/rotor-http", rev="ce68753"}
+rotor-stream = {git="git://github.com/tailhook/rotor-stream", rev="3b703b2"}
+mio = "0.5"
+time = "0.1"
+clap = "1.5.5"
