@@ -20,6 +20,11 @@ ARGS:
 
 ```
 
+## Installation and Use
+
+Since it depends on bleeding-edge rotor it can't be installed through Cargo yet.
+Clone the repo and then `cargo run --release -- $DIRECTORY`.
+
 ## License
 
 MIT/Apache-2.0
