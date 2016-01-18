@@ -44,53 +44,60 @@ fn run() -> Result<(), Error> {
              -t --threads=[THREADS] 'Sets the number of server threads (default 4)'")
         .get_matches();
 
-    let root_dir = matches.value_of("ROOT").unwrap_or(".");
     let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
-    let num_rotor_threads = match matches.value_of("THREADS") {
+    let root_dir = matches.value_of("ROOT").unwrap_or(".");
+    let num_server_threads = match matches.value_of("THREADS") {
         Some(t) => { try!(t.parse()) }
         None => 4
     };
 
-    let root_dir = PathBuf::from(root_dir);
     let addr: SocketAddr = try!(addr.parse());
-
+    let root_dir = PathBuf::from(root_dir);
     let thread_pool = ThreadPool::new(400);
 
-    for _ in 0..num_rotor_threads {
-        let root_dir = root_dir.clone();
+    for _ in 0..num_server_threads {
         let addr = addr.clone();
+        let root_dir = root_dir.clone();
         let thread_pool = thread_pool.clone();
         thread::spawn(move || {
-            // Our custom server context
-            let context = ServerContext {
-                root_dir: root_dir,
-                thread_pool: thread_pool,
-            };
-
-            let sock = net2::TcpBuilder::new_v4().unwrap();
-            set_reuse_port(&sock);
-            sock.bind(&addr).unwrap();
-
-            let listener = sock.listen(4096).unwrap();
-            let listener = TcpListener::from_listener(listener, &addr).unwrap();
-
-            // The mio event loop
-            let mut event_loop = rotor::EventLoop::new().unwrap();
-            // Rotor's mio event loop handler
-            let mut handler = rotor::Handler::new(context, &mut event_loop);
-
-            handler.add_machine_with(&mut event_loop, |scope| {
-                Accept::<Stream<Parser<ServerState, _>>, _>::new(listener, scope)
-            }).unwrap();
-
-            println!("listening on {}", addr);
-
-            event_loop.run(&mut handler).unwrap();
+            run_server(addr, root_dir, thread_pool).unwrap();
         });
-   }
+    }
 
     let (_tx, rx) = mpsc::channel::<()>();
     rx.recv().unwrap();
+
+    Ok(())
+}
+
+fn run_server(addr: SocketAddr, root_dir: PathBuf,
+              thread_pool: ThreadPool)
+              -> Result<(), Error> {
+    // Our custom server context
+    let context = ServerContext {
+        root_dir: root_dir,
+        thread_pool: thread_pool,
+    };
+
+    let sock = net2::TcpBuilder::new_v4().unwrap();
+    set_reuse_port(&sock);
+    sock.bind(&addr).unwrap();
+
+    let listener = sock.listen(4096).unwrap();
+    let listener = TcpListener::from_listener(listener, &addr).unwrap();
+
+    // The mio event loop
+    let mut event_loop = rotor::EventLoop::new().unwrap();
+    // Rotor's mio event loop handler
+    let mut handler = rotor::Handler::new(context, &mut event_loop);
+
+    handler.add_machine_with(&mut event_loop, |scope| {
+        Accept::<Stream<Parser<ServerState, _>>, _>::new(listener, scope)
+    }).unwrap();
+
+    println!("listening on {}", addr);
+
+    event_loop.run(&mut handler).unwrap();
 
     Ok(())
 }
