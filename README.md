@@ -1,6 +1,9 @@
 A simple HTTP static file server written in Rust with
 [rotor-http](https://github.com/tailhook/rotor-http).
 
+[The source is simple, and commented for easy comprehension](src/main.rs).
+
+
 ```
 USAGE:
         basic-http-server [FLAGS] [OPTIONS] [ARGS]
@@ -16,3 +19,7 @@ ARGS:
     ROOT    Sets the root dir (default ".")
 
 ```
+
+## License
+
+MIT/Apache-2.0
