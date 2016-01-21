@@ -213,18 +213,17 @@ fn run_server(config: Config) -> Result<(), Error> {
     let listener = try!(sock.listen(4096));
     let listener = try!(TcpListener::from_listener(listener, &addr));
 
-    // The mio event loop
-    let mut event_loop = try!(rotor::EventLoop::new());
-    // Rotor's mio event loop handler
-    let mut handler = rotor::Handler::new(context, &mut event_loop);
+    let config = rotor::Config::new();
+    let event_loop = try!(rotor::Loop::new(&config));
+    let mut loop_inst = event_loop.instantiate(context);
 
-    handler.add_machine_with(&mut event_loop, |scope| {
+    loop_inst.add_machine_with(|scope| {
         Accept::<Stream<Parser<RequestState, _>>, _>::new(listener, scope)
     }).unwrap();
 
     println!("listening on {}", addr);
 
-    try!(event_loop.run(&mut handler));
+    try!(loop_inst.run());
 
     Ok(())
 }
