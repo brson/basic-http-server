@@ -19,18 +19,12 @@ is only for network I/O.
 
 */
 
-// Non-blocking I/O.
-//
-// https://github.com/carllerche/mio
-extern crate mio;
-
 // rotor, a library for building state machines on top of mio, along
 // with an HTTP implementation, and its stream abstraction.
 //
 // https://medium.com/@paulcolomiets/async-io-in-rust-part-iii-cbfd10f17203
 extern crate rotor;
 extern crate rotor_http;
-extern crate rotor_stream;
 
 // A simple library for dealing with command line arguments
 //
@@ -69,13 +63,12 @@ extern crate error_type;
 extern crate time;
 
 use clap::App;
-use mio::tcp::TcpListener;
+use rotor::mio::tcp::TcpListener;
 use rotor::Scope;
+use rotor_http::{ServerFsm, Deadline};
 use rotor_http::header::ContentLength;
-use rotor_http::server::{RecvMode, Server, Head, Response, Parser, Context};
+use rotor_http::server::{RecvMode, Server, Head, Response, Context};
 use rotor_http::status::StatusCode;
-use rotor_http::uri::RequestUri;
-use rotor_stream::{Deadline, Accept, Stream};
 use std::error::Error as StdError;
 use std::fs::File;
 use std::io::{self, Read};
@@ -218,7 +211,7 @@ fn run_server(config: Config) -> Result<(), Error> {
     let mut loop_inst = event_loop.instantiate(context);
 
     loop_inst.add_machine_with(|scope| {
-        Accept::<Stream<Parser<RequestState, _>>, _>::new(listener, scope)
+        ServerFsm::<RequestState, _>::new(listener, scope)
     }).unwrap();
 
     println!("listening on {}", addr);
@@ -243,8 +236,7 @@ struct ServerContext {
 impl Context for ServerContext { }
 
 enum RequestState {
-    Init,
-    ReadyToRespond(Head),
+    ReadyToRespond(String),
     WaitingForData(Receiver<DataMsg>, bool /* headers_sent */)
 }
 
@@ -260,16 +252,11 @@ enum DataMsg {
 impl Server for RequestState {
     type Context = ServerContext;
 
-    fn headers_received(_head: &Head, _scope: &mut Scope<Self::Context>)
+    fn headers_received(head: Head, _response: &mut Response, _scope: &mut Scope<Self::Context>)
                         -> Result<(Self, RecvMode, Deadline), StatusCode> {
-        Ok((RequestState::Init, RecvMode::Buffered(1024),
+        Ok((RequestState::ReadyToRespond(head.path.to_string()),
+            RecvMode::Buffered(1024),
             Deadline::now() + Duration::seconds(10)))
-    }
-
-    fn request_start(self, head: Head, _response: &mut Response,
-                     _scope: &mut Scope<Self::Context>)
-                     -> Option<Self> {
-        Some(RequestState::ReadyToRespond(head))
     }
 
     fn request_received(self, _data: &[u8], response: &mut Response,
@@ -278,13 +265,13 @@ impl Server for RequestState {
 
         // Now that the request is received, prepare the response.
 
-        let head = if let RequestState::ReadyToRespond(head) = self {
-            head
+        let path = if let RequestState::ReadyToRespond(path) = self {
+            path
         } else {
             unreachable!()
         };
 
-        let path = if let Some(path) = local_path_for_request(head, &scope.root_dir) {
+        let path = if let Some(path) = local_path_for_request(&path, &scope.root_dir) {
             path
         } else {
             internal_server_error(response);
@@ -412,14 +399,11 @@ impl Server for RequestState {
 
 }
 
-fn local_path_for_request(head: Head, root_dir: &Path) -> Option<PathBuf> {
-    let request_path = match head.uri {
-        RequestUri::AbsolutePath(p) => p,
-        _ => {
-            return None;
-        }
-    };
-
+fn local_path_for_request(request_path: &str, root_dir: &Path) -> Option<PathBuf> {
+    // This is equivalent to checking for hyper::RequestUri::AbsoluteUri
+    if !request_path.starts_with("/") {
+        return None;
+    }
     // Trim off the url parameters starting with '?'
     let end = request_path.find('?').unwrap_or(request_path.len());
     let request_path = &request_path[0..end];
