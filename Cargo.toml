@@ -5,10 +5,8 @@ authors = ["Brian Anderson <banderson@mozilla.com>"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
-rotor = {git="git://github.com/tailhook/rotor", rev="4c142d4"}
-rotor-stream = {git="git://github.com/tailhook/rotor-stream", rev="2628e69"}
-rotor-http = {git="git://github.com/tailhook/rotor-http", rev="a855cdaab"}
-mio = "0.5"
+rotor = "0.5.1"
+rotor-http = "0.5.0"
 time = "0.1"
 clap = "1.5.5"
 threadpool = "0.2.1"
