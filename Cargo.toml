@@ -5,9 +5,8 @@ authors = ["Brian Anderson <banderson@mozilla.com>"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
-rotor = "0.5.1"
-rotor-http = "0.5.0"
-time = "0.1"
+rotor = "0.6.0"
+rotor-http = "0.6.0"
 clap = "1.5.5"
 threadpool = "0.2.1"
 net2 = "0.2"
