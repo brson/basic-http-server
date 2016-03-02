@@ -3,6 +3,9 @@ name = "basic-http-server"
 version = "0.1.0"
 authors = ["Brian Anderson <banderson@mozilla.com>"]
 license = "MIT/Apache-2.0"
+description = "A basic HTTP file server"
+homepage = "https://github.com/brson/basic-http-server"
+repository = "https://github.com/brson/basic-http-server"
 
 [dependencies]
 rotor = "0.6.0"
