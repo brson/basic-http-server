@@ -58,17 +58,11 @@ extern crate libc;
 #[macro_use]
 extern crate error_type;
 
-// Some deprecated time types that rotor needs, Duration,
-// and SteadyTime, that rotor needs.
-extern crate time;
-
 use clap::App;
 use rotor::mio::tcp::TcpListener;
-use rotor::Scope;
-use rotor_http::{ServerFsm, Deadline};
-use rotor_http::header::ContentLength;
+use rotor::{Scope, Time};
+use rotor_http::{ServerFsm};
 use rotor_http::server::{RecvMode, Server, Head, Response, Context};
-use rotor_http::status::StatusCode;
 use std::error::Error as StdError;
 use std::fs::File;
 use std::io::{self, Read};
@@ -76,9 +70,9 @@ use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
+use std::time::Duration;
 use std::thread;
 use threadpool::ThreadPool;
-use time::Duration;
 
 fn main() {
     // Set up our error handling immediatly. Everything in this crate
@@ -252,11 +246,11 @@ enum DataMsg {
 impl Server for RequestState {
     type Context = ServerContext;
 
-    fn headers_received(head: Head, _response: &mut Response, _scope: &mut Scope<Self::Context>)
-                        -> Result<(Self, RecvMode, Deadline), StatusCode> {
-        Ok((RequestState::ReadyToRespond(head.path.to_string()),
+    fn headers_received(head: Head, _response: &mut Response, scope: &mut Scope<Self::Context>)
+                        -> Option<(Self, RecvMode, Time)> {
+        Some((RequestState::ReadyToRespond(head.path.to_string()),
             RecvMode::Buffered(1024),
-            Deadline::now() + Duration::seconds(10)))
+            scope.now() + Duration::new(10, 0)))
     }
 
     fn request_received(self, _data: &[u8], response: &mut Response,
@@ -331,15 +325,15 @@ impl Server for RequestState {
                 RequestState::WaitingForData(rx, headers_sent) => {
                     match rx.try_recv() {
                         Ok(DataMsg::NotFound) => {
-                            response.status(StatusCode::NotFound);
-                            response.add_header(ContentLength(0)).unwrap();
+                            response.status(404, "Not Found");
+                            response.add_length(0).unwrap();
                             response.done_headers().unwrap();
                             response.done();
                             return None;
                         }
                         Ok(DataMsg::Header(length)) => {
-                            response.status(StatusCode::Ok);
-                            response.add_header(ContentLength(length)).unwrap();
+                            response.status(200, "OK");
+                            response.add_length(length).unwrap();
                             response.done_headers().unwrap();
                             RequestState::WaitingForData(rx, true)
                         }
@@ -393,7 +387,7 @@ impl Server for RequestState {
     }
 
     fn timeout(self, _response: &mut Response, _scope: &mut Scope<Self::Context>)
-               -> Option<(Self, Deadline)> {
+               -> Option<(Self, Time)> {
         unimplemented!()
     }
 
@@ -435,8 +429,8 @@ fn set_reuse_port(sock: &net2::TcpBuilder) {
 }
 
 fn internal_server_error(response: &mut Response) {
-    response.status(StatusCode::InternalServerError);
-    response.add_header(ContentLength(0)).unwrap();
+    response.status(500, "Internal Server Error");
+    response.add_length(0).unwrap();
     response.done_headers().unwrap();
     response.done();
 }
