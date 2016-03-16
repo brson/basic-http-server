@@ -22,8 +22,14 @@ ARGS:
 
 ## Installation and Use
 
-Since it depends on bleeding-edge rotor it can't be installed through Cargo yet.
-Clone the repo and then `cargo run --release -- $DIRECTORY`.
+Use `cargo install`:
+
+```sh
+$ cargo install basic-http-server
+$ basic-http-server
+```
+
+If you prefer to not use `cargo install`, clone the repo and then `cargo run --release -- $DIRECTORY`.
 
 ## License
 
