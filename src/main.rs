@@ -167,7 +167,7 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     };
 
     // Display the configuration to be helpful
-    println!("addr: {}", addr);
+    println!("addr: http://{}", addr);
     println!("root dir: {:?}", root_dir);
     println!("server threads: {}", num_server_threads);
     println!("file threads: {}", num_file_threads);
