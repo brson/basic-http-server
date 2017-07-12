@@ -1,57 +1,33 @@
 /*
 
 A simple HTTP server that serves static content from a given directory,
-built on [rotor] and [rotor-http].
+built on [hyper].
 
-It creates a number of rotor server threads, all listening on the same
-port (via [libc::SO_REUSEPORT]). These are state machines performing
-non-blocking network I/O on top of [mio]. The HTTP requests are parsed
-and responses emitted on these threads.
+It creates a hyper HTTP server, which uses non-blocking network I/O on
+top of [tokio] internally. Files are read sequentially, without using
+async I/O, by futures running in a thread pool (using [futures_cpupool]).
 
-Files are read sequentially in a thread pool. You might think they
-would be read on the I/O loop, but no: async file I/O is hard, and mio
-is only for network I/O.
-
-[rotor]: https://github.com/tailhook/rotor
-[rotor-http]: https://github.com/tailhook/rotor-http
-[libc::SO_REUSEPORT]: https://lwn.net/Articles/542629/
-[mio]: https://github.com/carllerche/mio
+[hyper]: https://github.com/hyperium/hyper
+[tokio]: https://tokio.rs/
+[futures_cpupool]: https://github.com/alexcrichton/futures-rs/tree/master/futures-cpupool
 
 */
 
-// rotor, a library for building state machines on top of mio, along
-// with an HTTP implementation, and its stream abstraction.
+// A library for zero-cost futures in Rust
 //
-// https://medium.com/@paulcolomiets/async-io-in-rust-part-iii-cbfd10f17203
-extern crate rotor;
-extern crate rotor_http;
+// https://github.com/alexcrichton/futures-rs
+extern crate futures;
+extern crate futures_cpupool; // included in futures-rs repo
+
+// A modern HTTP library
+//
+// https://github.com/hyperium/hyper
+extern crate hyper;
 
 // A simple library for dealing with command line arguments
 //
 // https://github.com/kbknapp/clap-rs
 extern crate clap;
-
-// A basic thread pool.
-//
-// http://frewsxcv.github.io/rust-threadpool/threadpool/
-extern crate threadpool;
-
-// Extensions to the standard networking types.
-//
-// This is an official nursery crate that contains networking features
-// that aren't in std. We're using in for [TcpBuilder].
-
-// https://doc.rust-lang.org/net2-rs/net2/index.html
-//
-// [TcpBuilder]: https://doc.rust-lang.org/net2-rs/net2/struct.TcpBuilder.html
-extern crate net2;
-
-// Bindings to the C library.
-//
-// We need it for `setsockopt` and `SO_REUSEPORT`.
-//
-// http://doc.rust-lang.org/libc/index.html
-extern crate libc;
 
 // The error_type! macro to avoid boilerplate trait
 // impls for error handling.
@@ -59,20 +35,16 @@ extern crate libc;
 extern crate error_type;
 
 use clap::App;
-use rotor::mio::tcp::TcpListener;
-use rotor::{Scope, Time};
-use rotor_http::{ServerFsm};
-use rotor_http::server::{RecvMode, Server, Head, Response, Context};
+use futures::{Async, Future, Poll};
+use futures_cpupool::{CpuFuture, CpuPool};
+use hyper::StatusCode;
+use hyper::header::ContentLength;
+use hyper::server::{Http, Request, Response, Service};
 use std::error::Error as StdError;
 use std::fs::File;
 use std::io::{self, Read};
 use std::net::SocketAddr;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
-use std::thread;
-use threadpool::ThreadPool;
 
 fn main() {
     // Set up our error handling immediatly. Everything in this crate
@@ -92,43 +64,19 @@ fn run() -> Result<(), Error> {
     // as the HTTP server's root directory, and the file I/O thread
     // pool.
     let config = try!(parse_config_from_cmdline());
+    let Config {
+        addr, root_dir, num_file_threads, ..
+    } = config;
 
-    let (tx, rx) = mpsc::channel::<Result<(), Error>>();
-
-    // Create multiple threads all listening on the same address and
-    // port, and sharing a thread pool for their file I/O.
-    // TODO: This needs to report panicks.
-    for _ in 0..config.num_server_threads {
-        let tx = tx.clone();
-        let config = config.clone();
-
-        thread::spawn(move || {
-            let r = run_server(config);
-
-            // It would be very strange for this send to fail,
-            // but there's nothing we can do if it does.
-            tx.send(r).unwrap();
-        });
-    }
-
-    // Wait for each thread to exit and report the result. Note that
-    // there's no way for the server threads to exit successfully,
-    // so normally this will block forever.
-    for i in 0..config.num_server_threads {
-        match rx.recv() {
-            Ok(Ok(())) => {
-                println!("thread {} exited successfully", i);
-            }
-            Ok(Err(e)) => {
-                println!("thread {} exited with error: {}", i, e.description());
-            }
-            Err(e) => {
-                // This will happen if some threads panicked.
-                println!("thread {} disappeared: {:?}", i, e.description());
-            }
-        }
-    }
-
+    // Create HTTP service, passing the document root directory and the
+    // thread pool used for executing the file reading I/O on.
+    let server = Http::new().bind(&addr, move || {
+        Ok(HttpService {
+            root_dir: root_dir.clone(),
+            pool: CpuPool::new(num_file_threads),
+        })
+    }).unwrap();
+    server.run().unwrap();
     Ok(())
 }
 
@@ -137,7 +85,7 @@ fn run() -> Result<(), Error> {
 struct Config {
     addr: SocketAddr,
     root_dir: PathBuf,
-    thread_pool: ThreadPool,
+    num_file_threads: usize,
     num_server_threads: u16,
 }
 
@@ -176,221 +124,89 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     Ok(Config {
         addr: try!(addr.parse()),
         root_dir: PathBuf::from(root_dir),
-        thread_pool: ThreadPool::new(num_file_threads),
+        num_file_threads: num_file_threads,
         num_server_threads: num_server_threads,
     })
 }
 
-// Run a single HTTP server forever.
-fn run_server(config: Config) -> Result<(), Error> {
-    let Config {
-        addr, root_dir, thread_pool, ..
-    } = config;
-
-    // Our custom server context
-    let context = ServerContext {
-        root_dir: root_dir,
-        thread_pool: thread_pool,
-    };
-
-    let sock = try!(net2::TcpBuilder::new_v4());
-    set_reuse_port(&sock);
-    try!(sock.bind(&addr));
-
-    let listener = try!(sock.listen(4096));
-    let listener = try!(TcpListener::from_listener(listener, &addr));
-
-    let config = rotor::Config::new();
-    let event_loop = try!(rotor::Loop::new(&config));
-    let mut loop_inst = event_loop.instantiate(context);
-
-    loop_inst.add_machine_with(|scope| {
-        ServerFsm::<RequestState, _>::new(listener, scope)
-    }).unwrap();
-
-    println!("listening on {}", addr);
-
-    try!(loop_inst.run());
-
-    Ok(())
-}
-
-// The ServerContext, implementing the rotor-http Context,
-// and RequestState, implementing the rotor-http Server.
-//
-// RequestState is a state machine that lasts for the lifecycle of a
-// single request. All RequestStates have access to the shared
-// ServerContext.
-
-struct ServerContext {
+struct HttpService {
     root_dir: PathBuf,
-    thread_pool: ThreadPool
+    pool: CpuPool,
 }
 
-impl Context for ServerContext { }
-
-enum RequestState {
-    ReadyToRespond(String),
-    WaitingForData(Receiver<DataMsg>, bool /* headers_sent */)
-}
-
-// Messages sent from the file I/O thread back to the state machine
-enum DataMsg {
-    NotFound,
-    Header(u64),
-    Data(Vec<u8>),
-    Done,
-    IoError(std::io::Error),
-}
-
-impl Server for RequestState {
-    type Context = ServerContext;
-
-    fn headers_received(head: Head, _response: &mut Response, scope: &mut Scope<Self::Context>)
-                        -> Option<(Self, RecvMode, Time)> {
-        Some((RequestState::ReadyToRespond(head.path.to_string()),
-            RecvMode::Buffered(1024),
-            scope.now() + Duration::new(10, 0)))
+// The HttpService knows how to build a ResponseFuture for each hyper Request
+// that is received. Errors are turned into an Error response (404 or 500).
+impl Service for HttpService {
+    type Request = Request;
+    type Response = Response;
+    type Error = hyper::Error;
+    type Future = ResponseFuture;
+    fn call(&self, req: Request) -> Self::Future {
+        let uri_path = req.uri().path();
+        if let Some(path) = local_path_for_request(&uri_path, &self.root_dir) {
+            ResponseFuture::File(self.pool.spawn(FileFuture { path }))
+        } else {
+            ResponseFuture::Error
+        }
     }
+}
 
-    fn request_received(self, _data: &[u8], response: &mut Response,
-                        scope: &mut Scope<Self::Context>)
-                        -> Option<Self> {
+enum ResponseFuture {
+    File(CpuFuture<Response, Error>),
+    Error,
+}
 
-        // Now that the request is received, prepare the response.
+impl Future for ResponseFuture {
+    type Item = Response;
+    type Error = hyper::Error;
+    fn poll(&mut self) -> Poll<Response, hyper::Error> {
+        match *self {
+            // If this is a File variant, poll the contained CpuFuture
+            // and propagate the result outward as a Response.
+            ResponseFuture::File(ref mut f) => match f.poll() {
+                Ok(Async::Ready(rsp)) => Ok(Async::Ready(rsp)),
+                Ok(Async::NotReady) => Ok(Async::NotReady),
+                Err(_) => Ok(Async::Ready(internal_server_error())),
+            },
+            // For the Error variant, we can just return an error immediately.
+            ResponseFuture::Error => Ok(Async::Ready(internal_server_error())),
+        }
+    }
+}
 
-        let path = if let RequestState::ReadyToRespond(path) = self {
-            path
-        } else {
-            unreachable!()
-        };
+struct FileFuture {
+    path: PathBuf,
+}
 
-        let path = if let Some(path) = local_path_for_request(&path, &scope.root_dir) {
-            path
-        } else {
-            internal_server_error(response);
-            return None;
-        };
-
-        // We're going to do the file I/O in another thread.
-        // This channel will transmit info from the I/O thread to the
-        // rotor machine.
-        let (tx, rx) = mpsc::channel();
-        // This rotor Notifier will trigger a wakeup when data is
-        // ready, upon which the response will be written in `wakeup`.
-        let notifier = scope.notifier();
-
-        scope.thread_pool.execute(move || {
-            match File::open(path) {
-                Ok(mut file) => {
-                    let mut buf = Vec::new();
-                    match file.read_to_end(&mut buf) {
-                        Ok(_) => {
-                            tx.send(DataMsg::Header(buf.len() as u64)).unwrap();
-                            tx.send(DataMsg::Data(buf)).unwrap();
-                            tx.send(DataMsg::Done).unwrap();
-                        }
-                        Err(e) => {
-                            tx.send(DataMsg::IoError(e)).unwrap();
-                        }
+impl Future for FileFuture {
+    type Item = Response;
+    type Error = Error;
+    fn poll(&mut self) -> Poll<Response, Error> {
+        match File::open(&self.path) {
+            Ok(mut file) => {
+                let mut buf = Vec::new();
+                match file.read_to_end(&mut buf) {
+                    Ok(_) => {
+                        Ok(Async::Ready(Response::new()
+                            .with_status(StatusCode::Ok)
+                            .with_header(ContentLength(buf.len() as u64))
+                            .with_body(buf)
+                        ))
                     }
-                }
-                Err(e) => {
-                    match e.kind() {
-                        io::ErrorKind::NotFound => {
-                            tx.send(DataMsg::NotFound).unwrap();
-                        }
-                        _ => {
-                            tx.send(DataMsg::IoError(e)).unwrap();
-                        }
-                    }
+                    Err(_) => Ok(Async::Ready(internal_server_error())),
                 }
             }
-
-            notifier.wakeup().unwrap();
-        });
-
-        Some(RequestState::WaitingForData(rx, false))
-    }
-
-    fn wakeup(self, response: &mut Response, _scope: &mut Scope<Self::Context>)
-              -> Option<Self> {
-
-        // Write the HTTP response in reaction to the messages sent by
-        // the file I/O thread.
-
-        let mut state = self;
-        loop {
-            state = match state {
-                RequestState::WaitingForData(rx, headers_sent) => {
-                    match rx.try_recv() {
-                        Ok(DataMsg::NotFound) => {
-                            response.status(404, "Not Found");
-                            response.add_length(0).unwrap();
-                            response.done_headers().unwrap();
-                            response.done();
-                            return None;
-                        }
-                        Ok(DataMsg::Header(length)) => {
-                            response.status(200, "OK");
-                            response.add_length(length).unwrap();
-                            response.done_headers().unwrap();
-                            RequestState::WaitingForData(rx, true)
-                        }
-                        Ok(DataMsg::Data(buf)) => {
-                            assert!(headers_sent);
-                            response.write_body(&buf);
-                            RequestState::WaitingForData(rx, headers_sent)
-                        }
-                        Ok(DataMsg::Done) => {
-                            assert!(headers_sent);
-                            response.done();
-                            return None;
-                        }
-                        Err(mpsc::TryRecvError::Empty) => {
-                            return Some(RequestState::WaitingForData(rx, headers_sent));
-                        }
-                        Ok(DataMsg::IoError(_)) |
-                        Err(mpsc::TryRecvError::Disconnected) => {
-                            if headers_sent {
-                                // We've arleady said this isn't an
-                                // error by sending successful
-                                // headers. Just give up.
-                                response.done();
-                                return None;
-                            } else {
-                                internal_server_error(response);
-                                return None;
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    unreachable!()
+            Err(e) => {
+                match e.kind() {
+                    io::ErrorKind::NotFound => {
+                        Ok(Async::Ready(Response::new()
+                            .with_status(StatusCode::NotFound)))
+                    },
+                    _ => Ok(Async::Ready(internal_server_error())),
                 }
             }
         }
     }
-
-    // I don't know what to do with these yet.
-
-    fn request_chunk(self, _chunk: &[u8], _response: &mut Response,
-                     _scope: &mut Scope<Self::Context>)
-                     -> Option<Self> {
-        unimplemented!()
-    }
-
-    fn request_end(self, _response: &mut Response,
-                   _scope: &mut Scope<Self::Context>)
-                   -> Option<Self> {
-        unimplemented!()
-    }
-
-    fn timeout(self, _response: &mut Response, _scope: &mut Scope<Self::Context>)
-               -> Option<(Self, Time)> {
-        unimplemented!()
-    }
-
 }
 
 fn local_path_for_request(request_path: &str, root_dir: &Path) -> Option<PathBuf> {
@@ -418,21 +234,10 @@ fn local_path_for_request(request_path: &str, root_dir: &Path) -> Option<PathBuf
     Some(path)
 }
 
-fn set_reuse_port(sock: &net2::TcpBuilder) {
-    let one = 1i32;
-    unsafe {
-        assert!(libc::setsockopt(
-            sock.as_raw_fd(), libc::SOL_SOCKET,
-            libc::SO_REUSEPORT,
-            &one as *const libc::c_int as *const libc::c_void, 4) == 0);
-    }
-}
-
-fn internal_server_error(response: &mut Response) {
-    response.status(500, "Internal Server Error");
-    response.add_length(0).unwrap();
-    response.done_headers().unwrap();
-    response.done();
+fn internal_server_error() -> Response {
+    Response::new()
+        .with_status(StatusCode::InternalServerError)
+        .with_header(ContentLength(0))
 }
 
 // The custom Error type that encapsulates all the possible errors

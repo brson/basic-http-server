@@ -8,8 +8,9 @@ homepage = "https://github.com/brson/basic-http-server"
 repository = "https://github.com/brson/basic-http-server"
 
 [dependencies]
-rotor = "0.6.0"
-rotor-http = "0.6.0"
+futures = "0.1.14"
+futures-cpupool = "0.1.5"
+hyper = "0.11"
 clap = "2.25.0"
 threadpool = "1.4.0"
 net2 = "0.2"
