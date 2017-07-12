@@ -8,7 +8,7 @@ dependencies = [
  "net2 0.2.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "rotor 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rotor-http 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "threadpool 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "threadpool 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -248,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "threadpool"
-version = "0.2.1"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -332,7 +332,7 @@ dependencies = [
 "checksum strsim 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b4d15c810519a91cf877e7e36e63fe068815c678181439f2f29e2562147c3694"
 "checksum term_size 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e2b6b55df3198cc93372e85dd2ed817f0e38ce8cc0f22eb32391bfad9c4bf209"
 "checksum textwrap 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f86300c3e7416ee233abd7cda890c492007a3980f941f79185c753a701257167"
-"checksum threadpool 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ae49a41f112cb5cb00c82a4a2f78c5b98b430a187eeb3ce2d7df49b8189b661b"
+"checksum threadpool 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2f95666101aad0c8f42d0533b696aee6de31d2ee6fc5081aa839b9b3b8440c3a"
 "checksum time 0.1.38 (registry+https://github.com/rust-lang/crates.io-index)" = "d5d788d3aa77bc0ef3e9621256885555368b47bd495c13dd2e7413c89f845520"
 "checksum unicode-segmentation 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "18127285758f0e2c6cf325bb3f3d138a12fee27de4f23e146cd6a179f26c2cf3"
 "checksum unicode-width 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "bf3a113775714a22dcb774d8ea3655c53a32debae63a063acc00a91cc586245f"
