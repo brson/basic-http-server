@@ -1,5 +1,4 @@
-A simple HTTP static file server written in Rust with
-[rotor-http](https://github.com/tailhook/rotor-http).
+A simple HTTP static file server written in Rust with async [hyper](https://hyper.rs/).
 
 [The source is simple, and commented for easy comprehension](src/main.rs).
 
