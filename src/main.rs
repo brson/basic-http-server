@@ -103,13 +103,13 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     let default_server_threads = 4;
     let default_file_threads = 100;
 
-    let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
+    let addr = matches.value_of("addr").unwrap_or("127.0.0.1:4000");
     let root_dir = matches.value_of("ROOT").unwrap_or(".");
-    let num_server_threads = match matches.value_of("THREADS") {
+    let num_server_threads = match matches.value_of("threads") {
         Some(t) => { try!(t.parse()) }
         None => default_server_threads
     };
-    let num_file_threads = match matches.value_of("FILE-THREADS") {
+    let num_file_threads = match matches.value_of("file-threads") {
         Some(t) => { try!(t.parse()) }
         None => default_file_threads
     };
