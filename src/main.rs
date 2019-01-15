@@ -95,9 +95,9 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
         .about("A basic HTTP file server")
         .args_from_usage(
             "[ROOT] 'Sets the root dir (default \".\")'
-             -a --addr=[ADDR] 'Sets the IP:PORT combination (default \"127.0.0.1:4000\")'
-             -t --threads=[THREADS] 'Sets the number of server threads (default 4)'
-             --file-threads=[FILE-THREADS] 'Sets the number of threads in the file I/O thread pool (default 100)'")
+             [ADDR] -a --addr=[ADDR] 'Sets the IP:PORT combination (default \"127.0.0.1:4000\")'
+             [THREADS] -t --threads=[THREADS] 'Sets the number of server threads (default 4)'
+             [FILE-THREADS] --file-threads=[FILE-THREADS] 'Sets the number of threads in the file I/O thread pool (default 100)'")
         .get_matches();
 
     let default_server_threads = 4;
