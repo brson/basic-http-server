@@ -39,6 +39,8 @@ use futures::{Async, Future, Poll};
 use futures_cpupool::{CpuFuture, CpuPool};
 use hyper::StatusCode;
 use hyper::header::ContentLength;
+use hyper::header::ContentType;
+use hyper::mime;
 use hyper::server::{Http, Request, Response, Service};
 use std::error::Error as StdError;
 use std::fs::File;
@@ -187,9 +189,11 @@ impl Future for FileFuture {
                 let mut buf = Vec::new();
                 match file.read_to_end(&mut buf) {
                     Ok(_) => {
+                        let mime_type = file_path_mime(&self.path);
                         Ok(Async::Ready(Response::new()
                             .with_status(StatusCode::Ok)
                             .with_header(ContentLength(buf.len() as u64))
+                            .with_header(ContentType(mime_type))
                             .with_body(buf)
                         ))
                     }
@@ -207,6 +211,18 @@ impl Future for FileFuture {
             }
         }
     }
+}
+
+fn file_path_mime(file_path: &Path) -> mime::Mime {
+    let mime_type = match file_path.extension().and_then(std::ffi::OsStr::to_str) {
+        Some("html") => mime::TEXT_HTML,
+        Some("css")  => mime::TEXT_CSS,
+        Some("js")   => mime::TEXT_JAVASCRIPT,
+        Some("jpg")  => mime::IMAGE_JPEG,
+        Some("png")  => mime::IMAGE_PNG,
+        _ => mime::TEXT_PLAIN
+    };
+    mime_type
 }
 
 fn local_path_for_request(request_path: &str, root_dir: &Path) -> Option<PathBuf> {
