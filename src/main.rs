@@ -4,13 +4,10 @@ A simple HTTP server that serves static content from a given directory,
 built on [hyper].
 
 It creates a hyper HTTP server, which uses non-blocking network I/O on
-top of [tokio] internally. Files are read sequentially, without using
-async I/O, by futures running in a thread pool (using [futures_cpupool]).
+top of [tokio] internally.
 
 [hyper]: https://github.com/hyperium/hyper
 [tokio]: https://tokio.rs/
-[futures_cpupool]: https://github.com/alexcrichton/futures-rs/tree/master/futures-cpupool
-
 */
 
 // The error_type! macro to avoid boilerplate trait
@@ -51,7 +48,7 @@ fn run() -> Result<(), Error> {
     let server = Server::bind(&addr)
         .serve(move || {
             let root_dir = root_dir.clone();
-            service_fn(move |req| serve(root_dir.clone(), req))
+            service_fn(move |req| serve(req, &root_dir.clone()))
         })
         .map_err(|e| {
             println!("There was an error: {}", e);
@@ -93,44 +90,56 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     })
 }
 
+// The function that returns a future of http responses for each hyper Request
+// that is received. Errors are turned into an Error response (404 or 500).
 fn serve(
-    root_dir: PathBuf,
     req: Request<Body>,
+    root_dir: &PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let uri_path = req.uri().path();
-    if let Some(path) = local_path_for_request(&uri_path, &root_dir) {
-        let future =
-            tokio_fs::file::File::open(path.clone()).then(|open_result| match open_result {
-                Ok(file) => {
-                    let buf: Vec<u8> = Vec::new();
-                    let future = tokio_io::io::read_to_end(file, buf)
-                        .map_err(Error::Io)
-                        .and_then(move |(_, buf)| {
-                            let mime_type = file_path_mime(&path);
-                            Response::builder()
-                                .status(StatusCode::OK)
-                                .header(header::CONTENT_LENGTH, buf.len() as u64)
-                                .header(header::CONTENT_TYPE, mime_type.as_ref())
-                                .body(Body::from(buf))
-                                .map_err(Error::from)
-                        });
-                    Either::A(future)
-                }
-                Err(e) => {
-                    let future = match e.kind() {
-                        io::ErrorKind::NotFound => Either::A(futures::future::result(
-                            Response::builder()
-                                .status(StatusCode::NOT_FOUND)
-                                .body(Body::empty()),
-                        )),
-                        _ => Either::B(internal_server_error()),
-                    };
-                    Either::B(future.map_err(Error::from))
-                }
-            });
-        Either::A(future)
+    if let Some(path) = local_path_for_request(&uri_path, root_dir) {
+        Either::A(tokio_fs::file::File::open(path.clone()).then(
+            move |open_result| match open_result {
+                Ok(file) => Either::A(read_file(file, path)),
+                Err(e) => Either::B(handle_io_error(e)),
+            },
+        ))
     } else {
-        Either::B(internal_server_error().map_err(Error::from))
+        Either::B(internal_server_error())
+    }
+}
+
+// Read the file completely and construct a 200 response with that file as
+// the body of the response.
+fn read_file<'a>(
+    file: tokio_fs::File,
+    path: PathBuf,
+) -> impl Future<Item = Response<Body>, Error = Error> {
+    let buf: Vec<u8> = Vec::new();
+    tokio_io::io::read_to_end(file, buf)
+        .map_err(Error::Io)
+        .and_then(move |(_, buf)| {
+            let mime_type = file_path_mime(&path);
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_LENGTH, buf.len() as u64)
+                .header(header::CONTENT_TYPE, mime_type.as_ref())
+                .body(Body::from(buf))
+                .map_err(Error::from)
+        })
+}
+
+// Handle the one special io error (file not found) by returning a 404, otherwise
+// return a 500
+fn handle_io_error(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
+    match error.kind() {
+        io::ErrorKind::NotFound => Either::A(futures::future::result(
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .map_err(Error::from),
+        )),
+        _ => Either::B(internal_server_error()),
     }
 }
 
@@ -171,13 +180,14 @@ fn local_path_for_request(request_path: &str, root_dir: &Path) -> Option<PathBuf
     Some(path)
 }
 
-fn internal_server_error() -> impl Future<Item = Response<Body>, Error = http::Error> {
+fn internal_server_error() -> impl Future<Item = Response<Body>, Error = Error> {
     futures::future::result(
         Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .header(header::CONTENT_LENGTH, 0)
             .body(Body::empty()),
     )
+    .map_err(Error::from)
 }
 
 // The custom Error type that encapsulates all the possible errors
