@@ -6,6 +6,7 @@ license = "MIT/Apache-2.0"
 description = "A basic HTTP file server"
 homepage = "https://github.com/brson/basic-http-server"
 repository = "https://github.com/brson/basic-http-server"
+edition = "2018"
 
 [dependencies]
 futures = "0.1.14"

@@ -13,22 +13,6 @@ async I/O, by futures running in a thread pool (using [futures_cpupool]).
 
 */
 
-// A library for zero-cost futures in Rust
-//
-// https://github.com/alexcrichton/futures-rs
-extern crate futures;
-extern crate futures_cpupool; // included in futures-rs repo
-
-// A modern HTTP library
-//
-// https://github.com/hyperium/hyper
-extern crate hyper;
-
-// A simple library for dealing with command line arguments
-//
-// https://github.com/kbknapp/clap-rs
-extern crate clap;
-
 // The error_type! macro to avoid boilerplate trait
 // impls for error handling.
 #[macro_use]
@@ -37,20 +21,23 @@ extern crate error_type;
 use clap::App;
 use futures::{Async, Future, Poll};
 use futures_cpupool::{CpuFuture, CpuPool};
-use hyper::StatusCode;
-use hyper::header::ContentLength;
-use hyper::header::ContentType;
-use hyper::mime;
-use hyper::server::{Http, Request, Response, Service};
-use std::error::Error as StdError;
-use std::fs::File;
-use std::io::{self, Read};
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use hyper::{
+    header::{ContentLength, ContentType},
+    mime,
+    server::{Http, Request, Response, Service},
+    StatusCode,
+};
+use std::{
+    error::Error as StdError,
+    fs::File,
+    io::{self, Read},
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 fn main() {
     // Set up our error handling immediatly. Everything in this crate
-    // that can return an error returns our custom Error type. `try!`
+    // that can return an error returns our custom Error type. `?`
     // will convert from all other error types by our `From<SomeError>
     // to Error` implementations. Every time a conversion doesn't
     // exist the compiler will tell us to create it. This crate uses
@@ -65,19 +52,24 @@ fn run() -> Result<(), Error> {
     // includes the IP address and port to listen on, the path to use
     // as the HTTP server's root directory, and the file I/O thread
     // pool.
-    let config = try!(parse_config_from_cmdline());
+    let config = parse_config_from_cmdline()?;
     let Config {
-        addr, root_dir, num_file_threads, ..
+        addr,
+        root_dir,
+        num_file_threads,
+        ..
     } = config;
 
     // Create HTTP service, passing the document root directory and the
     // thread pool used for executing the file reading I/O on.
-    let server = Http::new().bind(&addr, move || {
-        Ok(HttpService {
-            root_dir: root_dir.clone(),
-            pool: CpuPool::new(num_file_threads),
+    let server = Http::new()
+        .bind(&addr, move || {
+            Ok(HttpService {
+                root_dir: root_dir.clone(),
+                pool: CpuPool::new(num_file_threads),
+            })
         })
-    }).unwrap();
+        .unwrap();
     server.run().unwrap();
     Ok(())
 }
@@ -108,12 +100,12 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
     let root_dir = matches.value_of("ROOT").unwrap_or(".");
     let num_server_threads = match matches.value_of("THREADS") {
-        Some(t) => { try!(t.parse()) }
-        None => default_server_threads
+        Some(t) => t.parse()?,
+        None => default_server_threads,
     };
     let num_file_threads = match matches.value_of("FILE-THREADS") {
-        Some(t) => { try!(t.parse()) }
-        None => default_file_threads
+        Some(t) => t.parse()?,
+        None => default_file_threads,
     };
 
     // Display the configuration to be helpful
@@ -124,7 +116,7 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     println!("");
 
     Ok(Config {
-        addr: try!(addr.parse()),
+        addr: addr.parse()?,
         root_dir: PathBuf::from(root_dir),
         num_file_threads: num_file_threads,
         num_server_threads: num_server_threads,
@@ -190,25 +182,23 @@ impl Future for FileFuture {
                 match file.read_to_end(&mut buf) {
                     Ok(_) => {
                         let mime_type = file_path_mime(&self.path);
-                        Ok(Async::Ready(Response::new()
-                            .with_status(StatusCode::Ok)
-                            .with_header(ContentLength(buf.len() as u64))
-                            .with_header(ContentType(mime_type))
-                            .with_body(buf)
+                        Ok(Async::Ready(
+                            Response::new()
+                                .with_status(StatusCode::Ok)
+                                .with_header(ContentLength(buf.len() as u64))
+                                .with_header(ContentType(mime_type))
+                                .with_body(buf),
                         ))
                     }
                     Err(_) => Ok(Async::Ready(internal_server_error())),
                 }
             }
-            Err(e) => {
-                match e.kind() {
-                    io::ErrorKind::NotFound => {
-                        Ok(Async::Ready(Response::new()
-                            .with_status(StatusCode::NotFound)))
-                    },
-                    _ => Ok(Async::Ready(internal_server_error())),
-                }
-            }
+            Err(e) => match e.kind() {
+                io::ErrorKind::NotFound => Ok(Async::Ready(
+                    Response::new().with_status(StatusCode::NotFound),
+                )),
+                _ => Ok(Async::Ready(internal_server_error())),
+            },
         }
     }
 }
@@ -216,11 +206,11 @@ impl Future for FileFuture {
 fn file_path_mime(file_path: &Path) -> mime::Mime {
     let mime_type = match file_path.extension().and_then(std::ffi::OsStr::to_str) {
         Some("html") => mime::TEXT_HTML,
-        Some("css")  => mime::TEXT_CSS,
-        Some("js")   => mime::TEXT_JAVASCRIPT,
-        Some("jpg")  => mime::IMAGE_JPEG,
-        Some("png")  => mime::IMAGE_PNG,
-        _ => mime::TEXT_PLAIN
+        Some("css") => mime::TEXT_CSS,
+        Some("js") => mime::TEXT_JAVASCRIPT,
+        Some("jpg") => mime::IMAGE_JPEG,
+        Some("png") => mime::IMAGE_PNG,
+        _ => mime::TEXT_PLAIN,
     };
     mime_type
 }
