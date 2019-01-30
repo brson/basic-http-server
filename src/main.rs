@@ -13,22 +13,6 @@ async I/O, by futures running in a thread pool (using [futures_cpupool]).
 
 */
 
-// A library for zero-cost futures in Rust
-//
-// https://github.com/alexcrichton/futures-rs
-extern crate futures;
-extern crate futures_cpupool; // included in futures-rs repo
-
-// A modern HTTP library
-//
-// https://github.com/hyperium/hyper
-extern crate hyper;
-
-// A simple library for dealing with command line arguments
-//
-// https://github.com/kbknapp/clap-rs
-extern crate clap;
-
 // The error_type! macro to avoid boilerplate trait
 // impls for error handling.
 #[macro_use]
@@ -37,20 +21,23 @@ extern crate error_type;
 use clap::App;
 use futures::{Async, Future, Poll};
 use futures_cpupool::{CpuFuture, CpuPool};
-use hyper::header::ContentLength;
-use hyper::header::ContentType;
-use hyper::mime;
-use hyper::server::{Http, Request, Response, Service};
-use hyper::StatusCode;
-use std::error::Error as StdError;
-use std::fs::File;
-use std::io::{self, Read};
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use hyper::{
+    header::{ContentLength, ContentType},
+    mime,
+    server::{Http, Request, Response, Service},
+    StatusCode,
+};
+use std::{
+    error::Error as StdError,
+    fs::File,
+    io::{self, Read},
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 fn main() {
     // Set up our error handling immediatly. Everything in this crate
-    // that can return an error returns our custom Error type. `try!`
+    // that can return an error returns our custom Error type. `?`
     // will convert from all other error types by our `From<SomeError>
     // to Error` implementations. Every time a conversion doesn't
     // exist the compiler will tell us to create it. This crate uses
@@ -65,7 +52,7 @@ fn run() -> Result<(), Error> {
     // includes the IP address and port to listen on, the path to use
     // as the HTTP server's root directory, and the file I/O thread
     // pool.
-    let config = try!(parse_config_from_cmdline());
+    let config = parse_config_from_cmdline()?;
     let Config {
         addr,
         root_dir,
@@ -113,11 +100,11 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
     let root_dir = matches.value_of("ROOT").unwrap_or(".");
     let num_server_threads = match matches.value_of("THREADS") {
-        Some(t) => try!(t.parse()),
+        Some(t) => t.parse()?,
         None => default_server_threads,
     };
     let num_file_threads = match matches.value_of("FILE-THREADS") {
-        Some(t) => try!(t.parse()),
+        Some(t) => t.parse()?,
         None => default_file_threads,
     };
 
@@ -129,7 +116,7 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     println!("");
 
     Ok(Config {
-        addr: try!(addr.parse()),
+        addr: addr.parse()?,
         root_dir: PathBuf::from(root_dir),
         num_file_threads: num_file_threads,
         num_server_threads: num_server_threads,
