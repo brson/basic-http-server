@@ -20,11 +20,13 @@ use futures::{future::Either, Future};
 use http::status::StatusCode;
 use hyper::{header, service::service_fn, Body, Request, Response, Server};
 use std::{
+    env,
     error::Error as StdError,
     io,
     net::SocketAddr,
     path::{Path, PathBuf},
 };
+
 fn main() {
     // Set up our error handling immediatly. Everything in this crate
     // that can return an error returns our custom Error type. `?`
@@ -67,8 +69,9 @@ struct Config {
 }
 
 fn parse_config_from_cmdline() -> Result<Config, Error> {
+    let version: String = env::var("CARGO_PKG_VERSION").unwrap_or("unknown".to_string());
     let matches = App::new("basic-http-server")
-        .version("0.1")
+        .version(version.as_str())
         .about("A basic HTTP file server")
         .args_from_usage(
             "[ROOT] 'Sets the root dir (default \".\")'
