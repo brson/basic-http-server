@@ -56,7 +56,7 @@ fn run() -> Result<(), Error> {
             ()
         });
 
-    hyper::rt::run(server);
+    tokio::run(server);
 
     Ok(())
 }
@@ -100,7 +100,7 @@ fn serve(
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let uri_path = req.uri().path();
     if let Some(path) = local_path_for_request(&uri_path, root_dir) {
-        Either::A(tokio_fs::file::File::open(path.clone()).then(
+        Either::A(tokio::fs::file::File::open(path.clone()).then(
             move |open_result| match open_result {
                 Ok(file) => Either::A(read_file(file, path)),
                 Err(e) => Either::B(handle_io_error(e)),
@@ -114,11 +114,11 @@ fn serve(
 // Read the file completely and construct a 200 response with that file as
 // the body of the response.
 fn read_file<'a>(
-    file: tokio_fs::File,
+    file: tokio::fs::File,
     path: PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let buf: Vec<u8> = Vec::new();
-    tokio_io::io::read_to_end(file, buf)
+    tokio::io::read_to_end(file, buf)
         .map_err(Error::Io)
         .and_then(move |(_, buf)| {
             let mime_type = file_path_mime(&path);
