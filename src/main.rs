@@ -57,6 +57,7 @@ fn run() -> Result<(), Error> {
         });
 
     hyper::rt::run(server);
+
     Ok(())
 }
 
