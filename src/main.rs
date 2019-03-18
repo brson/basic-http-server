@@ -49,7 +49,7 @@ fn run() -> Result<(), Error> {
     let server = Server::bind(&addr)
         .serve(move || {
             let root_dir = root_dir.clone();
-            service_fn(move |req| serve(req, &root_dir.clone()))
+            service_fn(move |req| serve(req, &root_dir))
         })
         .map_err(|e| {
             println!("There was an error: {}", e);
