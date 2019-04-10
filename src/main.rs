@@ -151,6 +151,7 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
         Some("js") => mime::TEXT_JAVASCRIPT,
         Some("jpg") => mime::IMAGE_JPEG,
         Some("png") => mime::IMAGE_PNG,
+        Some("svg") => mime::IMAGE_SVG,
         Some("wasm") => "application/wasm".parse::<mime::Mime>().unwrap(),
         _ => mime::TEXT_PLAIN,
     };
