@@ -14,9 +14,12 @@ top of [tokio] internally.
 // impls for error handling.
 #[macro_use]
 extern crate error_type;
+#[macro_use]
+extern crate serde_derive;
 
 use clap::App;
-use futures::{future::Either, Future};
+use futures::{future, future::Either, Future};
+use handlebars::Handlebars;
 use http::status::StatusCode;
 use hyper::{header, service::service_fn, Body, Request, Response, Server};
 use std::{
@@ -131,20 +134,6 @@ fn read_file<'a>(
         })
 }
 
-// Handle the one special io error (file not found) by returning a 404, otherwise
-// return a 500
-fn handle_io_error(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
-    match error.kind() {
-        io::ErrorKind::NotFound => Either::A(futures::future::result(
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::empty())
-                .map_err(Error::from),
-        )),
-        _ => Either::B(internal_server_error()),
-    }
-}
-
 fn file_path_mime(file_path: &Path) -> mime::Mime {
     let mime_type = match file_path.extension().and_then(std::ffi::OsStr::to_str) {
         Some("html") => mime::TEXT_HTML,
@@ -186,13 +175,51 @@ fn local_path_for_request(request_path: &str, root_dir: &Path) -> Option<PathBuf
 }
 
 fn internal_server_error() -> impl Future<Item = Response<Body>, Error = Error> {
-    futures::future::result(
+    error_response(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn error_response(status: StatusCode)
+-> impl Future<Item = Response<Body>, Error = Error> {
+    future::result({
+        render_error_html(status)
+    }).and_then(move |body| {
         Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .header(header::CONTENT_LENGTH, 0)
-            .body(Body::empty()),
-    )
-    .map_err(Error::from)
+            .status(status)
+            .header(header::CONTENT_LENGTH, body.len())
+            .body(Body::from(body))
+            .map_err(Error::from)
+    })
+}
+
+// Handle the one special io error (file not found) by returning a 404, otherwise
+// return a 500
+fn handle_io_error(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
+    match error.kind() {
+        io::ErrorKind::NotFound => Either::A(
+            error_response(StatusCode::NOT_FOUND)
+        ),
+        _ => Either::B(internal_server_error()),
+    }
+}
+
+static HTML_TEMPLATE: &str = include_str!("template.html");
+
+#[derive(Serialize)]
+struct HtmlCfg {
+    title: String,
+    body: String,
+}
+
+fn render_html(cfg: HtmlCfg) -> Result<String, Error> {
+    let reg = Handlebars::new();
+    Ok(reg.render_template(HTML_TEMPLATE, &cfg)?)
+}
+
+fn render_error_html(status: StatusCode) -> Result<String, Error> {
+    render_html(HtmlCfg {
+        title: format!("{}", status),
+        body: String::new(),
+    })
 }
 
 // The custom Error type that encapsulates all the possible errors
@@ -202,6 +229,7 @@ fn internal_server_error() -> impl Future<Item = Response<Body>, Error = Error> 
 error_type! {
     #[derive(Debug)]
     enum Error {
+        Handlebars(handlebars::TemplateRenderError) { },
         Io(io::Error) { },
         HttpError(http::Error) { },
         AddrParse(std::net::AddrParseError) { },
