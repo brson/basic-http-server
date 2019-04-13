@@ -178,6 +178,17 @@ fn internal_server_error() -> impl Future<Item = Response<Body>, Error = Error> 
     error_response(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+// Handle the one special io error (file not found) by returning a 404, otherwise
+// return a 500
+fn handle_io_error(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
+    match error.kind() {
+        io::ErrorKind::NotFound => Either::A(
+            error_response(StatusCode::NOT_FOUND)
+        ),
+        _ => Either::B(internal_server_error()),
+    }
+}
+
 fn error_response(status: StatusCode)
 -> impl Future<Item = Response<Body>, Error = Error> {
     future::result({
@@ -189,17 +200,6 @@ fn error_response(status: StatusCode)
             .body(Body::from(body))
             .map_err(Error::from)
     })
-}
-
-// Handle the one special io error (file not found) by returning a 404, otherwise
-// return a 500
-fn handle_io_error(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
-    match error.kind() {
-        io::ErrorKind::NotFound => Either::A(
-            error_response(StatusCode::NOT_FOUND)
-        ),
-        _ => Either::B(internal_server_error()),
-    }
 }
 
 static HTML_TEMPLATE: &str = include_str!("template.html");
