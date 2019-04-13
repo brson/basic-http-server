@@ -151,6 +151,7 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
         Some("css") => mime::TEXT_CSS,
         Some("js") => mime::TEXT_JAVASCRIPT,
         Some("jpg") => mime::IMAGE_JPEG,
+        Some("md") => "text/markdown; charset=UTF-8".parse::<mime::Mime>().unwrap(),
         Some("png") => mime::IMAGE_PNG,
         Some("svg") => mime::IMAGE_SVG,
         Some("wasm") => "application/wasm".parse::<mime::Mime>().unwrap(),
