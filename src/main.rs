@@ -92,7 +92,7 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
 
     let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
     let root_dir = matches.value_of("ROOT").unwrap_or(".");
-    let ext = matches.value_of("EXT").unwrap_or("false");
+    let ext = matches.is_present("EXT");
 
     // Display the configuration to be helpful
     println!("addr: http://{}", addr);
@@ -102,7 +102,7 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     Ok(Config {
         addr: addr.parse()?,
         root_dir: PathBuf::from(root_dir),
-        use_extensions: ext.parse()?,
+        use_extensions: ext,
     })
 }
 
@@ -246,6 +246,8 @@ fn render_error_html(status: StatusCode) -> Result<String, Error> {
 // that can occur in this crate. This macro defines it and
 // automatically creates Display, Error, and From implementations for
 // all the variants.
+//
+// FIXME: Don't use error type / fix dummy MarkdownUtf8 arg
 error_type! {
     #[derive(Debug)]
     pub enum Error {
@@ -258,5 +260,10 @@ error_type! {
         },
         ParseInt(std::num::ParseIntError) { },
         ParseBool(std::str::ParseBoolError) { },
+        ParseUtf8(std::string::FromUtf8Error) { },
+        MarkdownUtf8(bool) {
+            disp (_e, fmt) write!(fmt, "Markdown is not UTF-8");
+            desc (_e) "Markdown is not UTF-8";
+        }
     }
 }
