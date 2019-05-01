@@ -2,3 +2,4 @@
 - logging
 - directory listing
 - markdown rendering
+- structopt
