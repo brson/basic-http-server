@@ -14,7 +14,7 @@ pub fn map(req: &Request<Body>,
         return Box::new(future::ok(resp));
     }
 
-    Box::new(serve(req, resp, root_dir))
+    serve(req, resp, root_dir)
 }
 
 fn serve(
