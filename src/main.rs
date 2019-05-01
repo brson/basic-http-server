@@ -29,6 +29,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod ext;
+
 fn main() {
     // Set up our error handling immediatly. Everything in this crate
     // that can return an error returns our custom Error type. `?`
@@ -52,7 +54,11 @@ fn run() -> Result<(), Error> {
     let server = Server::bind(&addr)
         .serve(move || {
             let root_dir = root_dir.clone();
-            service_fn(move |req| serve(req, &root_dir))
+            service_fn(move |req| {
+                let root_dir = root_dir.clone();
+                serve(&req, &root_dir)
+                    .and_then(move |resp| ext::map(&req, resp, &root_dir))
+            })
         })
         .map_err(|e| {
             println!("There was an error: {}", e);
@@ -98,7 +104,7 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
 // The function that returns a future of http responses for each hyper Request
 // that is received. Errors are turned into an Error response (404 or 500).
 fn serve(
-    req: Request<Body>,
+    req: &Request<Body>,
     root_dir: &PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let uri_path = req.uri().path();
@@ -228,7 +234,7 @@ fn render_error_html(status: StatusCode) -> Result<String, Error> {
 // all the variants.
 error_type! {
     #[derive(Debug)]
-    enum Error {
+    pub enum Error {
         Handlebars(handlebars::TemplateRenderError) { },
         Io(io::Error) { },
         HttpError(http::Error) { },

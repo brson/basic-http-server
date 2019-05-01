@@ -1,0 +1,4 @@
+- error on binding bound socket
+- logging
+- directory listing
+- markdown rendering
