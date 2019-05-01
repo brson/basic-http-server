@@ -111,8 +111,7 @@ fn serve(
     req: &Request<Body>,
     root_dir: &PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
-    let uri_path = req.uri().path();
-    if let Some(path) = local_path_for_request(&uri_path, root_dir) {
+    if let Some(path) = local_path_for_request(req, root_dir) {
         Either::A(tokio::fs::file::File::open(path.clone()).then(
             move |open_result| match open_result {
                 Ok(file) => Either::A(read_file(file, path)),
@@ -159,7 +158,9 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
     mime_type
 }
 
-fn local_path_for_request(request_path: &str, root_dir: &Path) -> Option<PathBuf> {
+fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBuf> {
+    let request_path = req.uri().path();
+    
     // This is equivalent to checking for hyper::RequestUri::AbsoluteUri
     if !request_path.starts_with("/") {
         return None;
