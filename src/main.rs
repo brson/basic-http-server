@@ -48,7 +48,7 @@ fn run() -> Result<(), Error> {
     // includes the IP address and port to listen on and the path to use
     // as the HTTP server's root directory
     let config = parse_config_from_cmdline()?;
-    let Config { addr, root_dir, .. } = config;
+    let Config { addr, root_dir, use_extensions, .. } = config;
 
     // Create HTTP service, passing the document root directory
     let server = Server::bind(&addr)
@@ -57,7 +57,7 @@ fn run() -> Result<(), Error> {
             service_fn(move |req| {
                 let root_dir = root_dir.clone();
                 serve(&req, &root_dir)
-                    .and_then(move |resp| ext::map(&req, resp, &root_dir))
+                    .and_then(move |resp| ext::map(&req, resp, &root_dir, use_extensions))
             })
         })
         .map_err(|e| {
@@ -75,6 +75,7 @@ fn run() -> Result<(), Error> {
 struct Config {
     addr: SocketAddr,
     root_dir: PathBuf,
+    use_extensions: bool,
 }
 
 fn parse_config_from_cmdline() -> Result<Config, Error> {
@@ -83,12 +84,14 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
         .about("A basic HTTP file server")
         .args_from_usage(
             "[ROOT] 'Sets the root dir (default \".\")'
-             [ADDR] -a --addr=[ADDR] 'Sets the IP:PORT combination (default \"127.0.0.1:4000\")'",
+             [ADDR] -a --addr=[ADDR] 'Sets the IP:PORT combination (default \"127.0.0.1:4000\")',
+             [EXT] -x 'Enable dev extensions'",
         )
         .get_matches();
 
     let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
     let root_dir = matches.value_of("ROOT").unwrap_or(".");
+    let ext = matches.value_of("EXT").unwrap_or("false");
 
     // Display the configuration to be helpful
     println!("addr: http://{}", addr);
@@ -98,6 +101,7 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     Ok(Config {
         addr: addr.parse()?,
         root_dir: PathBuf::from(root_dir),
+        use_extensions: ext.parse()?,
     })
 }
 
@@ -243,5 +247,6 @@ error_type! {
             desc (e) e.description();
         },
         ParseInt(std::num::ParseIntError) { },
+        ParseBool(std::str::ParseBoolError) { },
     }
 }
