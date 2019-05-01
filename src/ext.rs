@@ -5,6 +5,7 @@ use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
 use std::path::Path;
 use std::ffi::OsStr;
+use super::HtmlCfg;
 use tokio::fs::File;
 
 pub fn map(req: &Request<Body>,
@@ -55,6 +56,12 @@ fn md_file_to_html(file: File)
         .and_then(|s| String::from_utf8(s).map_err(|_| Error::MarkdownUtf8(true)))
         .and_then(move |s: String| {
             let html = comrak::markdown_to_html(&s, &options);
+            let cfg = HtmlCfg {
+                title: String::new(),
+                body: html,
+            };
+            super::render_html(cfg)
+        }).and_then(move |html| {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_LENGTH, html.len() as u64)

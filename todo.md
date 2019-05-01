@@ -3,3 +3,4 @@
 - directory listing
 - markdown rendering
 - structopt
+- panic handler
