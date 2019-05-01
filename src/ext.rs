@@ -6,7 +6,7 @@ use hyper::{header, Body};
 use std::path::Path;
 use std::ffi::OsStr;
 use super::HtmlCfg;
-use tokio::fs::File;
+use tokio::fs::{self, File};
 
 pub fn map(req: &Request<Body>,
            resp: Response<Body>,
@@ -31,7 +31,13 @@ pub fn map(req: &Request<Body>,
         return Box::new(future::ok(resp));
     }
 
-    Box::new(future::ok(resp))
+    Box::new(maybe_list_dir(&path).and_then(move |list_dir_resp| {
+        if let Some(f) = list_dir_resp {
+            Either::A(future::ok(f))
+        } else {
+            Either::B(future::ok(resp))
+        }
+    }))
 }
 
 fn md_path_to_html(path: &Path)
@@ -69,4 +75,23 @@ fn md_file_to_html(file: File)
                 .body(Body::from(html))
                 .map_err(Error::from)
         })
+}
+
+fn maybe_list_dir(path: &Path)
+                  -> impl Future<Item = Option<Response<Body>>, Error = Error>
+{
+    let path = path.to_owned();
+    fs::metadata(path.clone()).map_err(Error::from).and_then(move |m| {
+        if m.is_dir() {
+            Either::A(list_dir(&path))
+        } else {
+            Either::B(future::ok(None))
+        }
+    }).map_err(Error::from)
+}
+
+fn list_dir(path: &Path)
+            -> impl Future<Item = Option<Response<Body>>, Error = Error>
+{
+    future::err(Error::MarkdownUtf8(true))
 }
