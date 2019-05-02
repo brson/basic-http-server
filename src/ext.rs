@@ -1,12 +1,13 @@
 use comrak::ComrakOptions;
 use crate::Error;
-use futures::{future, Future, future::Either};
+use futures::{future, Future, future::Either, Stream};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
+use std::fmt::Write;
 use super::HtmlCfg;
-use tokio::fs::{self, File};
+use tokio_fs::{self as fs, File, DirEntry};
 
 pub fn map(req: &Request<Body>,
            resp: Response<Body>,
@@ -93,5 +94,40 @@ fn maybe_list_dir(path: &Path)
 fn list_dir(path: &Path)
             -> impl Future<Item = Option<Response<Body>>, Error = Error>
 {
-    future::err(Error::MarkdownUtf8(true))
+    fs::read_dir(path.to_owned()).map_err(Error::from).and_then(|read_dir| {
+        read_dir.collect().map_err(Error::from).and_then(|dents| {
+            let paths: Vec<_> = dents.iter().map(DirEntry::path).collect();
+            make_dir_list_body(&paths).map_err(Error::from)
+        }).and_then(|html| {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_LENGTH, html.len() as u64)
+                .header(header::CONTENT_TYPE, mime::TEXT_HTML.as_ref())
+                .body(Body::from(html))
+                .map_err(Error::from)
+                .map(Some)
+        })
+    })
+}
+
+fn make_dir_list_body(paths: &[PathBuf]) -> Result<String, Error> {
+    let mut buf = String::new();
+
+    writeln!(buf, "<div>")?;
+
+    for path in paths {
+        //let link = path_to_link(path);
+        writeln!(buf,
+                 "<span><a href='{}'>{}</a></span>",
+                 "todo",
+                 path.display())?;
+    }
+
+    writeln!(buf, "</div>")?;
+
+    let cfg = HtmlCfg {
+        title: String::new(),
+        body: buf,
+    };
+    super::render_html(cfg)
 }

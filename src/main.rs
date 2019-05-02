@@ -264,6 +264,7 @@ error_type! {
         MarkdownUtf8(bool) {
             disp (_e, fmt) write!(fmt, "Markdown is not UTF-8");
             desc (_e) "Markdown is not UTF-8";
-        }
+        },
+        Fmt(std::fmt::Error) { }
     }
 }

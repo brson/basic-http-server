@@ -4,3 +4,5 @@
 - markdown rendering
 - structopt
 - panic handler
+- extract html_str_to_response
+- prevent responding files outside of root_dir
