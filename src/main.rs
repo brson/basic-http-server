@@ -126,7 +126,7 @@ fn serve(
 
 // Read the file completely and construct a 200 response with that file as
 // the body of the response.
-fn respond_with_file<'a>(
+fn respond_with_file(
     file: tokio::fs::File,
     path: PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
@@ -142,7 +142,7 @@ fn respond_with_file<'a>(
         })
 }
 
-fn read_file<'a>(
+fn read_file(
     file: tokio::fs::File,
 ) -> impl Future<Item = Vec<u8>, Error = Error> {
     let buf: Vec<u8> = Vec::new();
