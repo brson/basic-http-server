@@ -112,7 +112,7 @@ fn serve(
     req: Request<Body>,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let config = config.clone();
-    serve_file(&req, &config.root_dir).and_then({
+    serve_file(&req, &config.root_dir).then({
         move |resp| {
             ext::serve(config, req, resp)
         }

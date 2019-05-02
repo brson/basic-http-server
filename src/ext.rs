@@ -11,14 +11,14 @@ use tokio_fs::{self as fs, File, DirEntry};
 
 pub fn serve(config: Config,
              req: Request<Body>,
-             resp: Response<Body>,
+             resp: Result<Response<Body>, Error>,
 ) -> Box<Future<Item = Response<Body>, Error = Error> + Send + 'static> {
     if !config.use_extensions {
-        return Box::new(future::ok(resp));
+        return Box::new(future::result(resp));
     }
     
     let path = super::local_path_for_request(&req, &config.root_dir);
-    if path.is_none() { return Box::new(future::ok(resp)); }
+    if path.is_none() { return Box::new(future::result(resp)); }
     let path = path.unwrap();
 
     let file_ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
@@ -27,17 +27,21 @@ pub fn serve(config: Config,
         return Box::new(md_path_to_html(&path));
     }
 
-    if resp.status() != StatusCode::NOT_FOUND {
-        return Box::new(future::ok(resp));
-    }
-
-    Box::new(maybe_list_dir(&path).and_then(move |list_dir_resp| {
-        if let Some(f) = list_dir_resp {
-            Either::A(future::ok(f))
-        } else {
-            Either::B(future::ok(resp))
+    if let Ok(resp) = resp {
+        if resp.status() != StatusCode::NOT_FOUND {
+            return Box::new(future::ok(resp));
         }
-    }))
+
+        Box::new(maybe_list_dir(&path).and_then(move |list_dir_resp| {
+            if let Some(f) = list_dir_resp {
+                Either::A(future::ok(f))
+            } else {
+                Either::B(future::ok(resp))
+            }
+        }))
+    } else {
+        Box::new(future::result(resp))
+    }
 }
 
 fn md_path_to_html(path: &Path)
