@@ -46,7 +46,7 @@ fn md_path_to_html(path: &Path)
     File::open(path.to_owned()).then(
         move |open_result| match open_result {
             Ok(file) => Either::A(md_file_to_html(file)),
-            Err(e) => Either::B(super::handle_io_error(e)),
+            Err(e) => Either::B(future::err(Error::Io(e))),
         }
     )
 }
