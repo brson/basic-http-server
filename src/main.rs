@@ -49,16 +49,15 @@ fn run() -> Result<(), Error> {
     // includes the IP address and port to listen on and the path to use
     // as the HTTP server's root directory
     let config = parse_config_from_cmdline()?;
-    let Config { addr, root_dir, use_extensions, .. } = config;
+    let Config { addr, .. } = config;
 
     // Create HTTP service, passing the document root directory
     let server = Server::bind(&addr)
         .serve(move || {
-            let root_dir = root_dir.clone();
+            let config = config.clone();
             service_fn(move |req| {
-                let root_dir = root_dir.clone();
-                serve(&req, &root_dir)
-                    .and_then(move |resp| ext::map(&req, resp, &root_dir, use_extensions))
+                let config = config.clone();
+                serve(&config, req)
             })
         })
         .map_err(|e| {
@@ -73,7 +72,7 @@ fn run() -> Result<(), Error> {
 
 // The configuration object, created from command line options
 #[derive(Clone)]
-struct Config {
+pub struct Config {
     addr: SocketAddr,
     root_dir: PathBuf,
     use_extensions: bool,
@@ -109,16 +108,32 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
 // The function that returns a future of http responses for each hyper Request
 // that is received. Errors are turned into an Error response (404 or 500).
 fn serve(
+    config: &Config,
+    req: Request<Body>,
+) -> impl Future<Item = Response<Body>, Error = Error> {
+    let config = config.clone();
+    serve_file(&req, &config.root_dir).and_then({
+        move |resp| {
+            ext::serve(config, req, resp)
+        }
+    }).then(|maybe_resp| {
+        match maybe_resp {
+            Ok(r) => Either::A(future::ok(r)),
+            Err(e) => Either::B(make_error_response(e)),
+        }
+    })
+}
+
+fn serve_file(
     req: &Request<Body>,
     root_dir: &PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     if let Some(path) = local_path_for_request(req, root_dir) {
-        Either::A(File::open(path.clone()).then(
-            move |open_result| match open_result {
-                Ok(file) => Either::A(respond_with_file(file, path)),
-                Err(e) => Either::B(handle_io_error(e)),
-            },
-        ))
+        Either::A(File::open(path.clone()).map_err({
+            Error::from
+        }).and_then(move |file| {
+            respond_with_file(file, path)
+        }))
     } else {
         Either::B(internal_server_error())
     }
@@ -192,6 +207,17 @@ fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBu
     }
 
     Some(path)
+}
+
+fn make_error_response(e: Error) -> impl Future<Item = Response<Body>, Error = Error> {
+    match e {
+        Error::Io(e) => {
+            Either::A(handle_io_error(e))
+        }
+        _ => {
+            Either::B(internal_server_error())
+        }
+    }
 }
 
 fn internal_server_error() -> impl Future<Item = Response<Body>, Error = Error> {

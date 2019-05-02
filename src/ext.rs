@@ -6,19 +6,18 @@ use hyper::{header, Body};
 use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
 use std::fmt::Write;
-use super::HtmlCfg;
+use super::{Config, HtmlCfg};
 use tokio_fs::{self as fs, File, DirEntry};
 
-pub fn map(req: &Request<Body>,
-           resp: Response<Body>,
-           root_dir: &Path,
-           ext: bool,
+pub fn serve(config: Config,
+             req: Request<Body>,
+             resp: Response<Body>,
 ) -> Box<Future<Item = Response<Body>, Error = Error> + Send + 'static> {
-    if !ext {
+    if !config.use_extensions {
         return Box::new(future::ok(resp));
     }
     
-    let path = super::local_path_for_request(req, root_dir);
+    let path = super::local_path_for_request(&req, &config.root_dir);
     if path.is_none() { return Box::new(future::ok(resp)); }
     let path = path.unwrap();
 
