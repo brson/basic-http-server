@@ -60,6 +60,7 @@ fn md_file_to_html(file: File)
 {
     let mut options = ComrakOptions::default();
     options.ext_autolink = true;
+    options.ext_header_ids = None;
     options.ext_table = true;
     
     super::read_file(file)
