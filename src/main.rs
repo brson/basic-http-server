@@ -135,7 +135,7 @@ fn serve_file(
             respond_with_file(file, path)
         }))
     } else {
-        Either::B(internal_server_error())
+        Either::B(future::err(Error::UrlToPath(0)))
     }
 }
 
@@ -290,6 +290,10 @@ error_type! {
         MarkdownUtf8(bool) {
             disp (_e, fmt) write!(fmt, "Markdown is not UTF-8");
             desc (_e) "Markdown is not UTF-8";
+        },
+        UrlToPath(u8) {
+            disp (_e, fmt) write!(fmt, "Failed to convert URL to local path");
+            desc (_e) "Failed to convert URL to local path";
         },
         Fmt(std::fmt::Error) { }
     }
