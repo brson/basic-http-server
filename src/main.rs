@@ -15,6 +15,8 @@ top of [tokio] internally.
 #[macro_use]
 extern crate error_type;
 #[macro_use]
+extern crate log;
+#[macro_use]
 extern crate serde_derive;
 
 use clap::App;
@@ -45,10 +47,24 @@ fn main() {
 }
 
 fn run() -> Result<(), Error> {
+    // Set up logging
+    env_logger::builder()
+        .default_format_module_path(false)
+        .default_format_timestamp(false)
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
     // Create the configuration from the command line arguments. It
     // includes the IP address and port to listen on and the path to use
     // as the HTTP server's root directory
     let config = parse_config_from_cmdline()?;
+
+    // Display the configuration to be helpful
+    info!("basic-http-server {}", env!("CARGO_PKG_VERSION"));
+    info!("addr: http://{}", config.addr);
+    info!("root dir: {}", config.root_dir.display());
+    info!("");
+
     let Config { addr, .. } = config;
 
     // Create HTTP service, passing the document root directory
@@ -59,9 +75,9 @@ fn run() -> Result<(), Error> {
                 let config = config.clone();
                 serve(&config, req)
             })
-        })
-        .map_err(|e| {
-            println!("There was an error: {}", e);
+        }).map_err(|e| {
+            // TODO how to handle this case correctly?
+            error!("server returned error: {}", e);
             ()
         });
 
@@ -92,11 +108,6 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
     let root_dir = matches.value_of("ROOT").unwrap_or(".");
     let ext = matches.is_present("EXT");
-
-    // Display the configuration to be helpful
-    println!("addr: http://{}", addr);
-    println!("root dir: {:?}", root_dir);
-    println!("");
 
     Ok(Config {
         addr: addr.parse()?,
