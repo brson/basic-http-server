@@ -63,6 +63,7 @@ fn run() -> Result<(), Error> {
     info!("basic-http-server {}", env!("CARGO_PKG_VERSION"));
     info!("addr: http://{}", config.addr);
     info!("root dir: {}", config.root_dir.display());
+    info!("extensions: {}", config.use_extensions);
     info!("");
 
     let Config { addr, .. } = config;
