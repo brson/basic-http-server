@@ -6,6 +6,7 @@ use hyper::{header, Body};
 use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
 use std::fmt::Write;
+use std::io;
 use super::{Config, HtmlCfg};
 use tokio_fs::{self as fs, File, DirEntry};
 
@@ -23,25 +24,32 @@ pub fn serve(config: Config,
     let path = super::local_path_for_request(&req, &config.root_dir);
     if path.is_none() { return Box::new(future::result(resp)); }
     let path = path.unwrap();
-
     let file_ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
 
     if file_ext == "md" {
+        trace!("using markdown extension");
         return Box::new(md_path_to_html(&path));
     }
 
-    if let Ok(resp) = resp {
-        if resp.status() != StatusCode::NOT_FOUND {
-            return Box::new(future::ok(resp));
-        }
-
-        Box::new(maybe_list_dir(&path).and_then(move |list_dir_resp| {
-            if let Some(f) = list_dir_resp {
-                Either::A(future::ok(f))
-            } else {
-                Either::B(future::ok(resp))
+    if let Err(e) = resp {
+        match e {
+            Error::Io(e) => {
+                if e.kind() == io::ErrorKind::NotFound {
+                    Box::new(maybe_list_dir(&path).and_then(move |list_dir_resp| {
+                        if let Some(f) = list_dir_resp {
+                            Either::A(future::ok(f))
+                        } else {
+                            Either::B(future::err(Error::from(e)))
+                        }
+                    }))
+                } else {
+                    return Box::new(future::err(Error::from(e)));
+                }
             }
-        }))
+            _ => {
+                return Box::new(future::err(e));
+            }
+        }
     } else {
         Box::new(future::result(resp))
     }
@@ -125,7 +133,7 @@ fn make_dir_list_body(paths: &[PathBuf]) -> Result<String, Error> {
     for path in paths {
         //let link = path_to_link(path);
         writeln!(buf,
-                 "<span><a href='{}'>{}</a></span>",
+                 "<div><a href='{}'>{}</a></div>",
                  "todo",
                  path.display())?;
     }
