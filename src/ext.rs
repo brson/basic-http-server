@@ -13,7 +13,9 @@ pub fn serve(config: Config,
              req: Request<Body>,
              resp: Result<Response<Body>, Error>,
 ) -> Box<Future<Item = Response<Body>, Error = Error> + Send + 'static> {
-    trace!("ext::serve");
+
+    trace!("checking extensions");
+
     if !config.use_extensions {
         return Box::new(future::result(resp));
     }

@@ -24,6 +24,7 @@ use futures::{future, future::Either, Future};
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use hyper::{header, service::service_fn, Body, Request, Response, Server};
+use std::env;
 use std::{
     error::Error as StdError,
     io,
@@ -48,10 +49,12 @@ fn main() {
 
 fn run() -> Result<(), Error> {
     // Set up logging
+    env::set_var("RUST_LOG",
+                 env::var("RUST_LOG")
+                 .unwrap_or("basic-http-server=info".into()));
     env_logger::builder()
         .default_format_module_path(false)
         .default_format_timestamp(false)
-        .filter_level(log::LevelFilter::Info)
         .init();
 
     // Create the configuration from the command line arguments. It
@@ -197,8 +200,11 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
 fn local_path_with_maybe_index(req: &Request<Body>, root_dir: &Path) -> Option<PathBuf> {
     local_path_for_request(req, root_dir)
         .map(|mut p: PathBuf| {
-            if p.ends_with("/") {
+            if p.is_dir() {
                 p.push("index.html");
+                debug!("trying {} for directory URL", p.display());
+            } else {
+                trace!("trying path as from URL");
             }
             p
         })
@@ -209,8 +215,10 @@ fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBu
     
     // This is equivalent to checking for hyper::RequestUri::AbsoluteUri
     if !request_path.starts_with("/") {
+        debug!("found non-absolute path");
         return None;
     }
+
     // Trim off the url parameters starting with '?'
     let end = request_path.find('?').unwrap_or(request_path.len());
     let request_path = &request_path[0..end];
@@ -220,8 +228,11 @@ fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBu
     if request_path.starts_with('/') {
         path.push(&request_path[1..]);
     } else {
+        debug!("found non-absolute path");
         return None;
     }
+
+    debug!("URL · path · {} · {}", req.uri(), path.display());
 
     Some(path)
 }
