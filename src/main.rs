@@ -128,7 +128,7 @@ fn serve_file(
     req: &Request<Body>,
     root_dir: &PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
-    if let Some(path) = local_path_for_request(req, root_dir) {
+    if let Some(path) = local_path_with_maybe_index(req, root_dir) {
         Either::A(File::open(path.clone()).map_err({
             Error::from
         }).and_then(move |file| {
@@ -182,6 +182,16 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
     mime_type
 }
 
+fn local_path_with_maybe_index(req: &Request<Body>, root_dir: &Path) -> Option<PathBuf> {
+    local_path_for_request(req, root_dir)
+        .map(|mut p: PathBuf| {
+            if p.ends_with("/") {
+                p.push("index.html");
+            }
+            p
+        })
+}
+
 fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBuf> {
     let request_path = req.uri().path();
     
@@ -199,11 +209,6 @@ fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBu
         path.push(&request_path[1..]);
     } else {
         return None;
-    }
-
-    // Maybe turn directory requests into index.html requests
-    if request_path.ends_with('/') {
-        path.push("index.html");
     }
 
     Some(path)
