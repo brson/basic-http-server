@@ -1,5 +1,5 @@
 - error on binding bound socket
-- logging
+- fix default log level
 - directory listing
 - markdown rendering
 - structopt
@@ -8,3 +8,4 @@
 - prevent responding files outside of root_dir
 - local Result type
 - remove error println from run function
+- set mime type for errors
