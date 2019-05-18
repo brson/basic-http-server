@@ -21,7 +21,7 @@ pub fn serve(config: Config,
         return Box::new(future::result(resp));
     }
     
-    let path = super::local_path_for_request(&req, &config.root_dir);
+    let path = super::local_path_for_request(&req.uri(), &config.root_dir);
     if path.is_none() { return Box::new(future::result(resp)); }
     let path = path.unwrap();
     let file_ext = path.extension().and_then(OsStr::to_str).unwrap_or("");

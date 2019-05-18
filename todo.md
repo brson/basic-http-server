@@ -9,3 +9,6 @@
 - local Result type
 - remove error println from run function
 - set mime type for errors
+- add context to errors
+- async is_dir
+- make to_path methods return Result

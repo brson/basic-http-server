@@ -23,6 +23,7 @@ use clap::App;
 use env_logger::{Builder, Env};
 use futures::{future, future::Either, Future};
 use handlebars::Handlebars;
+use http::Uri;
 use http::status::StatusCode;
 use hyper::{header, service::service_fn, Body, Request, Response, Server};
 use std::{
@@ -142,18 +143,64 @@ fn serve_file(
     req: &Request<Body>,
     root_dir: &PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
-    if let Some(path) = local_path_with_maybe_index(req, root_dir) {
-        let err_path = path.clone();
-        Either::A(File::open(path.clone()).map_err(move |e| {
-            if e.kind() == io::ErrorKind::NotFound {
-                debug!("file {} not found", err_path.display());
+    let uri = req.uri().clone();
+    let root_dir = root_dir.clone();
+    try_dir_redirect(req, &root_dir).and_then(move |maybe_resp| {
+        if let Some(resp) = maybe_resp {
+            return Either::A(future::ok(resp));
+        }
+
+        if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
+            let err_path = path.clone();
+            Either::B(File::open(path.clone()).map_err(move |e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    debug!("file {} not found", err_path.display());
+                }
+                Error::from(e)
+            }).and_then(move |file| {
+                respond_with_file(file, path)
+            }))
+        } else {
+            Either::A(future::err(Error::UrlToPath(0)))
+        }
+    })
+}
+
+/// If we get a URL without trailing "/" that can be mapped to a directory, then
+/// return a 302 redirect to the path with the trailing "/". For the purpose of
+/// building absolute URLs from relative URLs, agents only treat paths with
+/// trailing "/" as directories, so we have to redirect to the proper URL first.
+fn try_dir_redirect(
+    req: &Request<Body>,
+    root_dir: &PathBuf,
+) -> impl Future<Item = Option<Response<Body>>, Error = Error> {
+    if !req.uri().path().ends_with("/") {
+        debug!("path does not end with /");
+        if let Some(path) = local_path_for_request(req.uri(), root_dir) {
+            if path.is_dir() {
+                let mut new_loc = req.uri().path().to_string();
+                new_loc.push_str("/");
+                if let Some(query) = req.uri().query() {
+                    new_loc.push_str("?");
+                    new_loc.push_str(query);
+                }
+                info!("redirecting {} to {}", req.uri(), new_loc);
+                future::result(
+                    Response::builder()
+                        .status(StatusCode::FOUND)
+                        .header(header::LOCATION, new_loc)
+                        .body(Body::empty())
+                        .map(Some)
+                        .map_err(Error::from)
+                )
+            } else {
+                future::ok(None)
             }
-            Error::from(e)
-        }).and_then(move |file| {
-            respond_with_file(file, path)
-        }))
+        } else {
+            future::err(Error::UrlToPath(0))
+        }
     } else {
-        Either::B(future::err(Error::UrlToPath(0)))
+        future::ok(None)
     }
 }
 
@@ -200,8 +247,8 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
     mime_type
 }
 
-fn local_path_with_maybe_index(req: &Request<Body>, root_dir: &Path) -> Option<PathBuf> {
-    local_path_for_request(req, root_dir)
+fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
+    local_path_for_request(uri, root_dir)
         .map(|mut p: PathBuf| {
             if p.is_dir() {
                 p.push("index.html");
@@ -213,8 +260,8 @@ fn local_path_with_maybe_index(req: &Request<Body>, root_dir: &Path) -> Option<P
         })
 }
 
-fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBuf> {
-    let request_path = req.uri().path();
+fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
+    let request_path = uri.path();
 
     debug!("raw URI to path: {}", request_path);
     
@@ -237,7 +284,7 @@ fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBu
         return None;
     }
 
-    debug!("URL · path : {} · {}", req.uri(), path.display());
+    debug!("URL · path : {} · {}", uri, path.display());
 
     Some(path)
 }
