@@ -215,6 +215,8 @@ fn local_path_with_maybe_index(req: &Request<Body>, root_dir: &Path) -> Option<P
 
 fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBuf> {
     let request_path = req.uri().path();
+
+    debug!("raw URI to path: {}", request_path);
     
     // This is equivalent to checking for hyper::RequestUri::AbsoluteUri
     if !request_path.starts_with("/") {
@@ -326,6 +328,7 @@ error_type! {
             disp (_e, fmt) write!(fmt, "Failed to convert URL to local path");
             desc (_e) "Failed to convert URL to local path";
         },
-        Fmt(std::fmt::Error) { }
+        Fmt(std::fmt::Error) { },
+        StripPrefix(std::path::StripPrefixError) { }
     }
 }
