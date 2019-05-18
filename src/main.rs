@@ -143,8 +143,12 @@ fn serve_file(
     root_dir: &PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     if let Some(path) = local_path_with_maybe_index(req, root_dir) {
-        Either::A(File::open(path.clone()).map_err({
-            Error::from
+        let err_path = path.clone();
+        Either::A(File::open(path.clone()).map_err(move |e| {
+            if e.kind() == io::ErrorKind::NotFound {
+                debug!("file {} not found", err_path.display());
+            }
+            Error::from(e)
         }).and_then(move |file| {
             respond_with_file(file, path)
         }))
@@ -231,7 +235,7 @@ fn local_path_for_request(req: &Request<Body>, root_dir: &Path) -> Option<PathBu
         return None;
     }
 
-    debug!("URL · path · {} · {}", req.uri(), path.display());
+    debug!("URL · path : {} · {}", req.uri(), path.display());
 
     Some(path)
 }

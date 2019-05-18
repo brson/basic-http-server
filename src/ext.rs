@@ -36,6 +36,7 @@ pub fn serve(config: Config,
             Error::Io(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
                     Box::new(maybe_list_dir(&path).and_then(move |list_dir_resp| {
+                        trace!("using directory list extension");
                         if let Some(f) = list_dir_resp {
                             Either::A(future::ok(f))
                         } else {
