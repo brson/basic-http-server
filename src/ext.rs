@@ -131,10 +131,10 @@ fn make_dir_list_body(paths: &[PathBuf]) -> Result<String, Error> {
     writeln!(buf, "<div>")?;
 
     for path in paths {
-        //let link = path_to_link(path);
+        assert!(path.is_relative());
         writeln!(buf,
                  "<div><a href='{}'>{}</a></div>",
-                 "todo",
+                 path.display(),
                  path.display())?;
     }
 
