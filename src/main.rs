@@ -20,11 +20,11 @@ extern crate log;
 extern crate serde_derive;
 
 use clap::App;
+use env_logger::{Builder, Env};
 use futures::{future, future::Either, Future};
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use hyper::{header, service::service_fn, Body, Request, Response, Server};
-use std::env;
 use std::{
     error::Error as StdError,
     io,
@@ -48,11 +48,10 @@ fn main() {
 }
 
 fn run() -> Result<(), Error> {
-    // Set up logging
-    env::set_var("RUST_LOG",
-                 env::var("RUST_LOG")
-                 .unwrap_or("basic-http-server=info".into()));
-    env_logger::builder()
+    // Initialize logging, log the "info" level for this crate only, unless the
+    // environment contains `RUST_LOG`.
+    let env = Env::new().default_filter_or("basic_http_server=info");
+    Builder::from_env(env)
         .default_format_module_path(false)
         .default_format_timestamp(false)
         .init();
