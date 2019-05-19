@@ -44,7 +44,15 @@ fn main() {
     // exist the compiler will tell us to create it. This crate uses
     // the `error_type!` macro to reduce error boilerplate.
     if let Err(e) = run() {
-        println!("error: {}", e.description());
+        log_error_chain(&e);
+    }
+}
+
+fn log_error_chain(mut e: &dyn StdError) {
+    error!("error: {}", e);
+    while let Some(source) = e.source() {
+        error!("caused by: {}", source);
+        e = source;
     }
 }
 
@@ -151,13 +159,9 @@ fn serve_file(
         }
 
         if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
-            let err_path = path.clone();
-            Either::B(File::open(path.clone()).map_err(move |e| {
-                if e.kind() == io::ErrorKind::NotFound {
-                    debug!("file {} not found", err_path.display());
-                }
-                Error::from(e)
-            }).and_then(move |file| {
+            Either::B(File::open(path.clone()).map_err(
+                Error::from
+            ).and_then(move |file| {
                 respond_with_file(file, path)
             }))
         } else {
@@ -294,13 +298,14 @@ fn make_error_response(e: Error) -> impl Future<Item = Response<Body>, Error = E
         Error::Io(e) => {
             Either::A(handle_io_error(e))
         }
-        _ => {
-            Either::B(internal_server_error())
+        e => {
+            Either::B(internal_server_error(e))
         }
     }
 }
 
-fn internal_server_error() -> impl Future<Item = Response<Body>, Error = Error> {
+fn internal_server_error(err: Error) -> impl Future<Item = Response<Body>, Error = Error> {
+    log_error_chain(&err);
     error_response(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -308,10 +313,11 @@ fn internal_server_error() -> impl Future<Item = Response<Body>, Error = Error> 
 // return a 500
 fn handle_io_error(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
     match error.kind() {
-        io::ErrorKind::NotFound => Either::A(
-            error_response(StatusCode::NOT_FOUND)
-        ),
-        _ => Either::B(internal_server_error()),
+        io::ErrorKind::NotFound => {
+            debug!("{}", error);
+            Either::A(error_response(StatusCode::NOT_FOUND))
+        },
+        _ => Either::B(internal_server_error(Error::Io(error))),
     }
 }
 
@@ -354,38 +360,38 @@ fn render_error_html(status: StatusCode) -> Result<String, Error> {
 // all the variants.
 //
 // TODO: Make these more semantic
-#[derive(From, Error, Debug)]
+#[derive(From, Debug, Error, Display)]
 pub enum Error {
-    #[error(display = "failed to render template")]
+    #[display(fmt = "failed to render template")]
     Handlebars(#[error(cause)] handlebars::TemplateRenderError),
 
-    #[error(display = "i/o error")]
+    #[display(fmt = "i/o error")]
     Io(#[error(cause)] io::Error),
 
-    #[error(display = "http error")]
+    #[display(fmt = "http error")]
     HttpError(#[error(cause)] http::Error),
 
-    #[error(display = "failed to parse IP address")]
+    #[display(fmt = "failed to parse IP address")]
     AddrParse(#[error(cause)] std::net::AddrParseError),
 
-    #[error(display = "failed to parse a number")]
+    #[display(fmt = "failed to parse a number")]
     ParseInt(#[error(cause)] std::num::ParseIntError),
 
-    #[error(display = "failed to parse a boolean")]
+    #[display(fmt = "failed to parse a boolean")]
     ParseBool(#[error(cause)] std::str::ParseBoolError),
 
-    #[error(display = "string is not UTF-8")]
+    #[display(fmt = "string is not UTF-8")]
     ParseUtf8(#[error(cause)] std::string::FromUtf8Error),
 
-    #[error(display = "markdown is not UTF-8")]
+    #[display(fmt = "markdown is not UTF-8")]
     MarkdownUtf8,
 
-    #[error(display = "failed to convert URL to local file path")]
+    #[display(fmt = "failed to convert URL to local file path")]
     UrlToPath,
 
-    #[error(display = "formatting error")]
+    #[display(fmt = "formatting error")]
     Fmt(#[error(cause)] std::fmt::Error),
 
-    #[error(display = "failed to strip prefix")]
+    #[display(fmt = "failed to strip prefix")]
     StripPrefix(#[error(cause)] std::path::StripPrefixError),
 }

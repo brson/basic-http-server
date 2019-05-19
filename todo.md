@@ -12,3 +12,4 @@
 - add context to errors
 - async is_dir
 - make to_path methods return Result
+- make errors carry URLs
