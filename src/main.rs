@@ -37,12 +37,12 @@ use tokio::fs::File;
 mod ext;
 
 fn main() {
-    // Set up our error handling immediatly. Everything in this crate
-    // that can return an error returns our custom Error type. `?`
+    // Set up our error handling immediately. Everything in this crate
+    // that can return an error returns our custom `Error` type. `?`
     // will convert from all other error types by our `From<SomeError>
     // to Error` implementations. Every time a conversion doesn't
     // exist the compiler will tell us to create it. This crate uses
-    // the `error_type!` macro to reduce error boilerplate.
+    // `derive` macros to reduce error boilerplate.
     if let Err(e) = run() {
         log_error_chain(&e);
     }
@@ -354,11 +354,7 @@ fn render_error_html(status: StatusCode) -> Result<String, Error> {
     })
 }
 
-// The custom Error type that encapsulates all the possible errors
-// that can occur in this crate. This macro defines it and
-// automatically creates Display, Error, and From implementations for
-// all the variants.
-//
+// TODO: document
 // TODO: Make these more semantic
 #[derive(From, Debug, Error, Display)]
 pub enum Error {

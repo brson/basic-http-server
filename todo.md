@@ -1,9 +1,6 @@
 - error on binding bound socket
-- fix default log level
-- directory listing
-- markdown rendering
 - structopt
-- panic handler
+- catch and report panic
 - extract html_str_to_response
 - prevent responding files outside of root_dir
 - local Result type
@@ -13,3 +10,4 @@
 - async is_dir
 - make to_path methods return Result
 - make errors carry URLs
+- add '..' to directory listings
