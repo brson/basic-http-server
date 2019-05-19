@@ -76,7 +76,7 @@ fn md_file_to_html(file: File)
     options.ext_table = true;
     
     super::read_file(file)
-        .and_then(|s| String::from_utf8(s).map_err(|_| Error::MarkdownUtf8(true)))
+        .and_then(|s| String::from_utf8(s).map_err(|_| Error::MarkdownUtf8))
         .and_then(move |s: String| {
             let html = comrak::markdown_to_html(&s, &options);
             let cfg = HtmlCfg {

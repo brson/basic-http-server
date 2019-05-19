@@ -10,10 +10,10 @@ top of [tokio] internally.
 [tokio]: https://tokio.rs/
 */
 
-// The error_type! macro to avoid boilerplate trait
-// impls for error handling.
 #[macro_use]
-extern crate error_type;
+extern crate err_derive;
+#[macro_use]
+extern crate derive_more;
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -161,7 +161,7 @@ fn serve_file(
                 respond_with_file(file, path)
             }))
         } else {
-            Either::A(future::err(Error::UrlToPath(0)))
+            Either::A(future::err(Error::UrlToPath))
         }
     })
 }
@@ -197,7 +197,7 @@ fn try_dir_redirect(
                 future::ok(None)
             }
         } else {
-            future::err(Error::UrlToPath(0))
+            future::err(Error::UrlToPath)
         }
     } else {
         future::ok(None)
@@ -353,29 +353,39 @@ fn render_error_html(status: StatusCode) -> Result<String, Error> {
 // automatically creates Display, Error, and From implementations for
 // all the variants.
 //
-// FIXME: Don't use error type / fix dummy MarkdownUtf8 arg
-error_type! {
-    #[derive(Debug)]
-    pub enum Error {
-        Handlebars(handlebars::TemplateRenderError) { },
-        Io(io::Error) { },
-        HttpError(http::Error) { },
-        AddrParse(std::net::AddrParseError) { },
-        Std(Box<StdError + Send + Sync>) {
-            desc (e) e.description();
-        },
-        ParseInt(std::num::ParseIntError) { },
-        ParseBool(std::str::ParseBoolError) { },
-        ParseUtf8(std::string::FromUtf8Error) { },
-        MarkdownUtf8(bool) {
-            disp (_e, fmt) write!(fmt, "Markdown is not UTF-8");
-            desc (_e) "Markdown is not UTF-8";
-        },
-        UrlToPath(u8) {
-            disp (_e, fmt) write!(fmt, "Failed to convert URL to local path");
-            desc (_e) "Failed to convert URL to local path";
-        },
-        Fmt(std::fmt::Error) { },
-        StripPrefix(std::path::StripPrefixError) { }
-    }
+// TODO: Make these more semantic
+#[derive(From, Error, Debug)]
+pub enum Error {
+    #[error(display = "failed to render template")]
+    Handlebars(#[error(cause)] handlebars::TemplateRenderError),
+
+    #[error(display = "i/o error")]
+    Io(#[error(cause)] io::Error),
+
+    #[error(display = "http error")]
+    HttpError(#[error(cause)] http::Error),
+
+    #[error(display = "failed to parse IP address")]
+    AddrParse(#[error(cause)] std::net::AddrParseError),
+
+    #[error(display = "failed to parse a number")]
+    ParseInt(#[error(cause)] std::num::ParseIntError),
+
+    #[error(display = "failed to parse a boolean")]
+    ParseBool(#[error(cause)] std::str::ParseBoolError),
+
+    #[error(display = "string is not UTF-8")]
+    ParseUtf8(#[error(cause)] std::string::FromUtf8Error),
+
+    #[error(display = "markdown is not UTF-8")]
+    MarkdownUtf8,
+
+    #[error(display = "failed to convert URL to local file path")]
+    UrlToPath,
+
+    #[error(display = "formatting error")]
+    Fmt(#[error(cause)] std::fmt::Error),
+
+    #[error(display = "failed to strip prefix")]
+    StripPrefix(#[error(cause)] std::path::StripPrefixError),
 }
