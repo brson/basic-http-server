@@ -11,3 +11,5 @@
 - make to_path methods return Result
 - make errors carry URLs
 - add '..' to directory listings
+- with -x, check missing .html files for .md instead
+- strip -- comments from top of md files
