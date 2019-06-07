@@ -13,3 +13,5 @@
 - add '..' to directory listings
 - with -x, check missing .html files for .md instead
 - strip -- comments from top of md files
+- display README.md for dirs by default
+- add a way to explicitly request an index listing
