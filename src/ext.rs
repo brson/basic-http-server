@@ -71,9 +71,14 @@ fn md_file_to_html(file: File)
                    -> impl Future<Item = Response<Body>, Error = Error>
 {
     let mut options = ComrakOptions::default();
+    // be like GitHub
     options.ext_autolink = true;
     options.ext_header_ids = None;
     options.ext_table = true;
+    options.ext_strikethrough = true;
+    options.ext_tagfilter = true;
+    options.ext_tasklist = true;
+    options.github_pre_lang = true;
     
     super::read_file(file)
         .and_then(|s| String::from_utf8(s).map_err(|_| Error::MarkdownUtf8))
