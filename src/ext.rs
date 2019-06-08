@@ -79,6 +79,7 @@ fn md_file_to_html(file: File)
     options.ext_tagfilter = true;
     options.ext_tasklist = true;
     options.github_pre_lang = true;
+    options.ext_header_ids = Some("user-content-".to_string());
     
     super::read_file(file)
         .and_then(|s| String::from_utf8(s).map_err(|_| Error::MarkdownUtf8))
