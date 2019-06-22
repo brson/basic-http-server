@@ -118,10 +118,13 @@ fn list_dir(root_dir: &Path, path: &Path)
             -> impl Future<Item = Option<Response<Body>>, Error = Error>
 {
     let root_dir = root_dir.to_owned();
+    let up_dir = path.join("..");
     fs::read_dir(path.to_owned()).map_err(Error::from).and_then(move |read_dir| {
         let root_dir = root_dir.to_owned();
         read_dir.collect().map_err(Error::from).and_then(move |dents| {
-            let paths: Vec<_> = dents.iter().map(DirEntry::path).collect();
+            let paths = dents.iter().map(DirEntry::path);
+            let paths = Some(up_dir).into_iter().chain(paths);
+            let paths: Vec<_> = paths.collect();
             make_dir_list_body(&root_dir, &paths).map_err(Error::from)
         }).and_then(|html| {
             super::html_str_to_response(html, StatusCode::OK).map(Some)
@@ -134,9 +137,16 @@ fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String, Erro
 
     writeln!(buf, "<div>")?;
 
+    let dot_dot = OsStr::new("..");
+
     for path in paths {
         let full_url = path.strip_prefix(root_dir)?;
-        if let Some(file_name) = path.file_name() {
+        let maybe_dot_dot = || if path.ends_with("..") {
+            Some(dot_dot)
+        } else {
+            None
+        };
+        if let Some(file_name) = path.file_name().or_else(maybe_dot_dot) {
             if let Some(file_name) = file_name.to_str() {
                 // TODO: Make this a relative URL
                 writeln!(buf,
