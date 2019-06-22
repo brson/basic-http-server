@@ -1,7 +1,6 @@
 - error on binding bound socket
 - structopt
 - catch and report panic
-- extract html_str_to_response
 - prevent responding files outside of root_dir
 - local Result type
 - remove error println from run function

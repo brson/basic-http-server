@@ -326,12 +326,19 @@ fn error_response(status: StatusCode)
     future::result({
         render_error_html(status)
     }).and_then(move |body| {
-        Response::builder()
-            .status(status)
-            .header(header::CONTENT_LENGTH, body.len())
-            .body(Body::from(body))
-            .map_err(Error::from)
+        html_str_to_response(body, status)
     })
+}
+
+fn html_str_to_response(body: String, status: StatusCode)
+                        -> Result<Response<Body>, Error>
+{
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_LENGTH, body.len())
+        .header(header::CONTENT_TYPE, mime::TEXT_HTML.as_ref())
+        .body(Body::from(body))
+        .map_err(Error::from)
 }
 
 static HTML_TEMPLATE: &str = include_str!("template.html");

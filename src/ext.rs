@@ -124,13 +124,7 @@ fn list_dir(root_dir: &Path, path: &Path)
             let paths: Vec<_> = dents.iter().map(DirEntry::path).collect();
             make_dir_list_body(&root_dir, &paths).map_err(Error::from)
         }).and_then(|html| {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_LENGTH, html.len() as u64)
-                .header(header::CONTENT_TYPE, mime::TEXT_HTML.as_ref())
-                .body(Body::from(html))
-                .map_err(Error::from)
-                .map(Some)
+            super::html_str_to_response(html, StatusCode::OK).map(Some)
         })
     })
 }
