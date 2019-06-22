@@ -1,14 +1,4 @@
-/*
-
-A simple HTTP server that serves static content from a given directory,
-built on [hyper].
-
-It creates a hyper HTTP server, which uses non-blocking network I/O on
-top of [tokio] internally.
-
-[hyper]: https://github.com/hyperium/hyper
-[tokio]: https://tokio.rs/
-*/
+//! A simple HTTP server, for learning and local doc development.
 
 #[macro_use]
 extern crate err_derive;
@@ -34,6 +24,7 @@ use std::{
 };
 use tokio::fs::File;
 
+// Developer extensions
 mod ext;
 
 fn main() {
@@ -48,6 +39,7 @@ fn main() {
     }
 }
 
+/// Basic error reporting, including the "cause chain"
 fn log_error_chain(mut e: &dyn StdError) {
     error!("error: {}", e);
     while let Some(source) = e.source() {
@@ -113,7 +105,7 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
         .args_from_usage(
             "[ROOT] 'Sets the root dir (default \".\")'
              [ADDR] -a --addr=[ADDR] 'Sets the IP:PORT combination (default \"127.0.0.1:4000\")',
-             [EXT] -x 'Enable dev extensions'",
+             [EXT] -x 'Enable developer extensions'",
         )
         .get_matches();
 

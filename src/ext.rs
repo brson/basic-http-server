@@ -1,3 +1,5 @@
+//! Developer extensions for basic-http-server
+
 use comrak::ComrakOptions;
 use crate::Error;
 use futures::{future, Future, future::Either, Stream};
@@ -8,7 +10,8 @@ use std::ffi::OsStr;
 use std::fmt::Write;
 use std::io;
 use super::{Config, HtmlCfg};
-use tokio_fs::{self as fs, File, DirEntry};
+use tokio::fs::{self, File};
+use tokio_fs::DirEntry;
 
 pub fn serve(config: Config,
              req: Request<Body>,

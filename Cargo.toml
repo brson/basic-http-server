@@ -1,29 +1,32 @@
 [package]
 name = "basic-http-server"
-version = "0.5.0"
-authors = ["Brian Anderson <banderson@mozilla.com>"]
+version = "0.6.0"
+authors = ["Brian Anderson <andersrb@gmail.com>"]
 license = "MIT/Apache-2.0"
-description = "A basic HTTP file server"
+description = "A basic HTTP file server, for learning and local doc development"
 homepage = "https://github.com/brson/basic-http-server"
 repository = "https://github.com/brson/basic-http-server"
 edition = "2018"
 
 [dependencies]
-err-derive = "0.1.5"
-futures = "0.1.14"
-hyper = "0.12.22"
-http = "0.1.15"
-mime = "0.3.13"
-clap = "2.25.0"
-comrak = "0.6.0"
-derive_more = "0.14.0"
-tokio = "0.1.17"
-tokio-fs = "0.1.6"
-threadpool = "1.4.0"
-net2 = "0.2"
-libc = "0.2.4"
-handlebars = "2.0.0-beta.2"
-serde = "1.0.90"
-serde_derive = "1.0.90"
-log = "0.4.6"
-env_logger = "0.6.1"
+clap = "2.25.0"             # CLI parsing
+
+log = "0.4.6"               # logging
+env_logger = "0.6.1"        # CLI logging via RUST_LOG
+
+futures = "0.1.14"          # Rust futures
+tokio = "0.1.17"            # async I/O runtime
+tokio-fs = "0.1.6"          # async file I/O
+
+hyper = "0.12.22"           # HTTP server
+http = "0.1.15"             # HTTP definitions
+mime = "0.3.13"             # MIME definitions
+
+handlebars = "2.0.0-beta.2" # HTML templating
+serde = "1.0.90"            # needed by derive(Serialize)
+serde_derive = "1.0.90"     # derive(Serialize), needed by handlebars
+
+derive_more = "0.14.0"      # derive(From)
+err-derive = "0.1.5"        # derive(Error)
+
+comrak = "0.6.0"            # markdown parsing
