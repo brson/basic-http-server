@@ -1,8 +1,6 @@
 //! A simple HTTP server, for learning and local doc development.
 
 #[macro_use]
-extern crate err_derive;
-#[macro_use]
 extern crate derive_more;
 #[macro_use]
 extern crate log;

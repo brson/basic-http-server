@@ -1,28 +1,29 @@
 use std::io;
+use std::error::Error as StdError;
 
 /// The basic-http-server error type
-#[derive(From, Debug, Error, Display)]
+#[derive(From, Debug, Display)]
 pub enum Error {
     #[display(fmt = "failed to render template")]
-    Handlebars(#[error(cause)] handlebars::TemplateRenderError),
+    Handlebars(handlebars::TemplateRenderError),
 
     #[display(fmt = "i/o error")]
-    Io(#[error(cause)] io::Error),
+    Io(io::Error),
 
     #[display(fmt = "http error")]
-    HttpError(#[error(cause)] http::Error),
+    HttpError(http::Error),
 
     #[display(fmt = "failed to parse IP address")]
-    AddrParse(#[error(cause)] std::net::AddrParseError),
+    AddrParse(std::net::AddrParseError),
 
     #[display(fmt = "failed to parse a number")]
-    ParseInt(#[error(cause)] std::num::ParseIntError),
+    ParseInt(std::num::ParseIntError),
 
     #[display(fmt = "failed to parse a boolean")]
-    ParseBool(#[error(cause)] std::str::ParseBoolError),
+    ParseBool(std::str::ParseBoolError),
 
     #[display(fmt = "string is not UTF-8")]
-    ParseUtf8(#[error(cause)] std::string::FromUtf8Error),
+    ParseUtf8(std::string::FromUtf8Error),
 
     #[display(fmt = "markdown is not UTF-8")]
     MarkdownUtf8,
@@ -31,10 +32,16 @@ pub enum Error {
     UrlToPath,
 
     #[display(fmt = "formatting error")]
-    Fmt(#[error(cause)] std::fmt::Error),
+    Fmt(std::fmt::Error),
 
     #[display(fmt = "failed to strip prefix")]
-    StripPrefix(#[error(cause)] std::path::StripPrefixError),
+    StripPrefix(std::path::StripPrefixError),
+}
+
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        None
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
