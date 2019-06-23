@@ -1,7 +1,7 @@
 //! Developer extensions for basic-http-server
 
 use comrak::ComrakOptions;
-use super::{Error, Result};
+use crate::errors::{Error, Result};
 use futures::{future, Future, future::Either, Stream};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
