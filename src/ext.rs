@@ -1,7 +1,7 @@
 //! Developer extensions for basic-http-server
 
 use comrak::ComrakOptions;
-use crate::Error;
+use super::{Error, Result};
 use futures::{future, Future, future::Either, Stream};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
@@ -15,7 +15,7 @@ use tokio_fs::DirEntry;
 
 pub fn serve(config: Config,
              req: Request<Body>,
-             resp: Result<Response<Body>, Error>,
+             resp: Result<Response<Body>>,
 ) -> Box<Future<Item = Response<Body>, Error = Error> + Send + 'static> {
 
     trace!("checking extensions");
@@ -135,7 +135,7 @@ fn list_dir(root_dir: &Path, path: &Path)
     })
 }
 
-fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String, Error> {
+fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
     let mut buf = String::new();
 
     writeln!(buf, "<div>")?;

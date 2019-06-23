@@ -28,18 +28,17 @@ use tokio::fs::File;
 mod ext;
 
 fn main() {
-    // Set up our error handling immediately. Everything in this crate
-    // that can return an error returns our custom `Error` type. `?`
-    // will convert from all other error types by our `From<SomeError>
-    // to Error` implementations. Every time a conversion doesn't
-    // exist the compiler will tell us to create it. This crate uses
-    // `derive` macros to reduce error boilerplate.
+    // Set up our error handling immediately. The situations in which `run` can
+    // actually return errors are few though - any errors propagated up to the
+    // hyper request handler silently cause the connection to be closed, and our
+    // HTTP service additionally converts any errors to HTTP error responses.
     if let Err(e) = run() {
         log_error_chain(&e);
     }
 }
 
-/// Basic error reporting, including the "cause chain"
+/// Basic error reporting, including the "cause chain". This is used both by the
+/// top-level error reporting and to report internal server errors.
 fn log_error_chain(mut e: &dyn StdError) {
     error!("error: {}", e);
     while let Some(source) = e.source() {
@@ -48,9 +47,9 @@ fn log_error_chain(mut e: &dyn StdError) {
     }
 }
 
-fn run() -> Result<(), Error> {
-    // Initialize logging, log the "info" level for this crate only, unless the
-    // environment contains `RUST_LOG`.
+fn run() -> Result<()> {
+    // Initialize logging, and log the "info" level for this crate only, unless
+    // the environment contains `RUST_LOG`.
     let env = Env::new().default_filter_or("basic_http_server=info");
     Builder::from_env(env)
         .default_format_module_path(false)
@@ -59,7 +58,7 @@ fn run() -> Result<(), Error> {
 
     // Create the configuration from the command line arguments. It
     // includes the IP address and port to listen on and the path to use
-    // as the HTTP server's root directory
+    // as the HTTP server's root directory.
     let config = parse_config_from_cmdline()?;
 
     // Display the configuration to be helpful
@@ -67,21 +66,26 @@ fn run() -> Result<(), Error> {
     info!("addr: http://{}", config.addr);
     info!("root dir: {}", config.root_dir.display());
     info!("extensions: {}", config.use_extensions);
-    info!("");
 
-    let Config { addr, .. } = config;
-
-    // Create HTTP service, passing the document root directory
-    let server = Server::bind(&addr)
+    let server = Server::bind(&config.addr)
         .serve(move || {
             let config = config.clone();
             service_fn(move |req| {
-                let config = config.clone();
-                serve(&config, req)
+                serve(&config, req).map_err(|e| {
+                    // Log any errors that result from handling a single HTTP
+                    // request. This _should_ be impossible - we expect our
+                    // service function to map all errors to HTTP error
+                    // responses.
+                    error!("request handler error: {}", e);
+                    e
+                })
             })
         }).map_err(|e| {
-            // TODO how to handle this case correctly?
-            error!("server returned error: {}", e);
+            // Log any errors that result from hyper's `Server` future failing.
+            // The tokio runtime expects to run a future that doesn't error so
+            // not sure how to square that with hyper's `Server` carrying an
+            // error type, but here hyper's error type is mapped to nil.
+            error!("server error: {}", e);
             ()
         });
 
@@ -90,7 +94,7 @@ fn run() -> Result<(), Error> {
     Ok(())
 }
 
-// The configuration object, created from command line options
+/// The configuration object, parsed from command line options
 #[derive(Clone)]
 pub struct Config {
     addr: SocketAddr,
@@ -98,7 +102,7 @@ pub struct Config {
     use_extensions: bool,
 }
 
-fn parse_config_from_cmdline() -> Result<Config, Error> {
+fn parse_config_from_cmdline() -> Result<Config> {
     let matches = App::new("basic-http-server")
         .version(env!("CARGO_PKG_VERSION"))
         .about("A basic HTTP file server")
@@ -120,18 +124,28 @@ fn parse_config_from_cmdline() -> Result<Config, Error> {
     })
 }
 
-// The function that returns a future of http responses for each hyper Request
-// that is received. Errors are turned into an Error response (404 or 500).
+/// The function that returns a future of an HTTP response for each hyper
+/// Request that is received. Errors are turned into an Error response (404 or
+/// 500), and never propagated upward for hyper to deal with.
 fn serve(
     config: &Config,
     req: Request<Body>,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let config = config.clone();
-    serve_file(&req, &config.root_dir).then({
+    serve_file(&req, &config.root_dir).then(
+        // Give developer extensions an opportunity to post-process the request/response pair
         move |resp| {
             ext::serve(config, req, resp)
         }
-    }).then(|maybe_resp| {
+    ).then(|maybe_resp| {
+        // Turn any errors into an HTTP error response.
+        //
+        // This `Either` future is a simple way to create a concrete future
+        // (i.e. a non-boxed future) of one of two different `Future` types.
+        // We'll use it a lot.
+        //
+        // Here type `A` is a `FutureResult`, and type `B` is some `impl Future`
+        // returned by `make_error_response`.
         match maybe_resp {
             Ok(r) => Either::A(future::ok(r)),
             Err(e) => Either::B(make_error_response(e)),
@@ -139,15 +153,21 @@ fn serve(
     })
 }
 
+/// Serve static files from a root directory
 fn serve_file(
     req: &Request<Body>,
     root_dir: &PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let uri = req.uri().clone();
     let root_dir = root_dir.clone();
-    try_dir_redirect(req, &root_dir).and_then(move |maybe_resp| {
-        if let Some(resp) = maybe_resp {
-            return Either::A(future::ok(resp));
+
+    // First, try to do a redirect per `try_dir_redirect`. If that doesn't
+    // happen, then find the path to the static file we want to serve - which
+    // may be `index.html` for directories - and send a response containing that
+    // file.
+    try_dir_redirect(req, &root_dir).and_then(move |maybe_redir_resp| {
+        if let Some(redir_resp) = maybe_redir_resp {
+            return Either::A(future::ok(redir_resp));
         }
 
         if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
@@ -163,9 +183,18 @@ fn serve_file(
 }
 
 /// If we get a URL without trailing "/" that can be mapped to a directory, then
-/// return a 302 redirect to the path with the trailing "/". For the purpose of
-/// building absolute URLs from relative URLs, agents only treat paths with
-/// trailing "/" as directories, so we have to redirect to the proper URL first.
+/// return a 302 redirect to the path with the trailing "/".
+///
+/// Without this we couldn't correctly return the contents of `index.html` for a
+/// directory - for the purpose of building absolute URLs from relative URLs,
+/// agents appear to only treat paths with trailing "/" as directories, so we
+/// have to redirect to the proper directory URL first.
+///
+/// In other words, if we returned the contents of `index.html` for URL `docs`
+/// then all the relative links in that file would be broken, but that is not
+/// the case for URL `docs/`.
+///
+/// This seems to match the behavior of other static web servers.
 fn try_dir_redirect(
     req: &Request<Body>,
     root_dir: &PathBuf,
@@ -200,8 +229,10 @@ fn try_dir_redirect(
     }
 }
 
-// Read the file completely and construct a 200 response with that file as
-// the body of the response.
+/// Read the file completely and construct a 200 response with that file as the
+/// body of the response. If the I/O here fails then an error future will be
+/// returned, and `serve` will convert it into the appropriate HTTP error
+/// response.
 fn respond_with_file(
     file: tokio::fs::File,
     path: PathBuf,
@@ -218,16 +249,18 @@ fn respond_with_file(
         })
 }
 
+/// Read a file and return a future of the buffer
 fn read_file(
     file: tokio::fs::File,
 ) -> impl Future<Item = Vec<u8>, Error = Error> {
     let buf: Vec<u8> = Vec::new();
     tokio::io::read_to_end(file, buf)
         .map_err(Error::Io)
-        .and_then(|(_, buf)| future::ok(buf))
+        .and_then(|(_read_handle, buf)| future::ok(buf))
 }
 
 
+/// Get a MIME type based on the file etension
 fn file_path_mime(file_path: &Path) -> mime::Mime {
     let mime_type = match file_path.extension().and_then(std::ffi::OsStr::to_str) {
         Some("html") => mime::TEXT_HTML,
@@ -243,6 +276,8 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
     mime_type
 }
 
+/// Find the local path for a request URI, converting directories to the
+/// `index.html` file.
 fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     local_path_for_request(uri, root_dir)
         .map(|mut p: PathBuf| {
@@ -256,6 +291,7 @@ fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
         })
 }
 
+/// Map the request's URI to a local path
 fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     let request_path = uri.path();
 
@@ -285,35 +321,38 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     Some(path)
 }
 
+/// Convert an error to an HTTP error response future, with correct response code.
 fn make_error_response(e: Error) -> impl Future<Item = Response<Body>, Error = Error> {
     match e {
         Error::Io(e) => {
-            Either::A(handle_io_error(e))
+            Either::A(make_io_error_response(e))
         }
         e => {
-            Either::B(internal_server_error(e))
+            Either::B(make_internal_server_error_response(e))
         }
     }
 }
 
-fn internal_server_error(err: Error) -> impl Future<Item = Response<Body>, Error = Error> {
+/// Convert an error into a 500 internal server error, and log it.
+fn make_internal_server_error_response(err: Error) -> impl Future<Item = Response<Body>, Error = Error> {
     log_error_chain(&err);
-    error_response(StatusCode::INTERNAL_SERVER_ERROR)
+    make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-// Handle the one special io error (file not found) by returning a 404, otherwise
-// return a 500
-fn handle_io_error(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
+/// Handle the one special io error (file not found) by returning a 404, otherwise
+/// return a 500.
+fn make_io_error_response(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
     match error.kind() {
         io::ErrorKind::NotFound => {
             debug!("{}", error);
-            Either::A(error_response(StatusCode::NOT_FOUND))
+            Either::A(make_error_response_from_code(StatusCode::NOT_FOUND))
         },
-        _ => Either::B(internal_server_error(Error::Io(error))),
+        _ => Either::B(make_internal_server_error_response(Error::Io(error))),
     }
 }
 
-fn error_response(status: StatusCode)
+/// Make an error response given an HTTP status code.
+fn make_error_response_from_code(status: StatusCode)
 -> impl Future<Item = Response<Body>, Error = Error> {
     future::result({
         render_error_html(status)
@@ -322,8 +361,9 @@ fn error_response(status: StatusCode)
     })
 }
 
+/// Make an HTTP response from a HTML string.
 fn html_str_to_response(body: String, status: StatusCode)
-                        -> Result<Response<Body>, Error>
+                        -> Result<Response<Body>>
 {
     Response::builder()
         .status(status)
@@ -333,28 +373,32 @@ fn html_str_to_response(body: String, status: StatusCode)
         .map_err(Error::from)
 }
 
+/// A handlebars HTML template
 static HTML_TEMPLATE: &str = include_str!("template.html");
 
+/// The data for the handlebars HTML template. Handlebars will use serde to get
+/// the data out of the struct and mapped onto the template.
 #[derive(Serialize)]
 struct HtmlCfg {
     title: String,
     body: String,
 }
 
-fn render_html(cfg: HtmlCfg) -> Result<String, Error> {
+/// Render an HTML page with handlebars, the template and the configuration data.
+fn render_html(cfg: HtmlCfg) -> Result<String> {
     let reg = Handlebars::new();
     Ok(reg.render_template(HTML_TEMPLATE, &cfg)?)
 }
 
-fn render_error_html(status: StatusCode) -> Result<String, Error> {
+/// Render an HTML page from an HTTP status code
+fn render_error_html(status: StatusCode) -> Result<String> {
     render_html(HtmlCfg {
         title: format!("{}", status),
         body: String::new(),
     })
 }
 
-// TODO: document
-// TODO: Make these more semantic
+/// The basic-http-server error type
 #[derive(From, Debug, Error, Display)]
 pub enum Error {
     #[display(fmt = "failed to render template")]
@@ -390,3 +434,5 @@ pub enum Error {
     #[display(fmt = "failed to strip prefix")]
     StripPrefix(#[error(cause)] std::path::StripPrefixError),
 }
+
+type Result<T> = std::result::Result<T, Error>;
