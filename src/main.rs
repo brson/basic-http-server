@@ -21,10 +21,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tokio::fs::File;
-use errors::{Error, Result};
 
-// The error type
-mod errors;
 // Developer extensions
 mod ext;
 
@@ -119,7 +116,7 @@ fn parse_config_from_cmdline() -> Result<Config> {
     let ext = matches.is_present("EXT");
 
     Ok(Config {
-        addr: addr.parse()?,
+        addr: addr.parse().map_err(Error::AddrParse)?,
         root_dir: PathBuf::from(root_dir),
         use_extensions: ext,
     })
@@ -388,7 +385,9 @@ struct HtmlCfg {
 /// Render an HTML page with handlebars, the template and the configuration data.
 fn render_html(cfg: HtmlCfg) -> Result<String> {
     let reg = Handlebars::new();
-    Ok(reg.render_template(HTML_TEMPLATE, &cfg)?)
+    let rendered = reg.render_template(HTML_TEMPLATE, &cfg)
+        .map_err(Error::TemplateRender)?;
+    Ok(rendered)
 }
 
 /// Render an HTML page from an HTTP status code
@@ -397,4 +396,68 @@ fn render_error_html(status: StatusCode) -> Result<String> {
         title: format!("{}", status),
         body: String::new(),
     })
+}
+
+/// A custom `Result` typedef
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// The basic-http-server error type
+#[derive(Debug, Display)]
+pub enum Error {
+    // blanket "pass-through" error types
+
+    #[display(fmt = "HTTP error")]
+    Http(http::Error),
+
+    #[display(fmt = "I/O error")]
+    Io(io::Error),
+
+    // custom "semantic" error types
+
+    #[display(fmt = "failed to parse IP address")]
+    AddrParse(std::net::AddrParseError),
+
+    #[display(fmt = "markdown is not UTF-8")]
+    MarkdownUtf8,
+
+    #[display(fmt = "failed to strip prefix in directory listing")]
+    StripPrefixInDirList(std::path::StripPrefixError),
+
+    #[display(fmt = "failed to render template")]
+    TemplateRender(handlebars::TemplateRenderError),
+
+    #[display(fmt = "failed to convert URL to local file path")]
+    UrlToPath,
+
+    #[display(fmt = "formatting error while creating directory listing")]
+    WriteInDirList(std::fmt::Error),
+}
+
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        use Error::*;
+
+        match self {
+            Http(e) => Some(e),
+            Io(e) => Some(e),
+            AddrParse(e) => Some(e),
+            MarkdownUtf8 => None,
+            StripPrefixInDirList(e) => Some(e),
+            TemplateRender(e) => Some(e),
+            UrlToPath => None,
+            WriteInDirList(e) => Some(e),
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Error {
+        Error::Io(e)
+    }
+}
+
+impl From<http::Error> for Error {
+    fn from(e: http::Error) -> Error {
+        Error::Http(e)
+    }
 }

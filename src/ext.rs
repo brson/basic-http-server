@@ -1,7 +1,7 @@
 //! Developer extensions for basic-http-server
 
 use comrak::ComrakOptions;
-use crate::errors::{Error, Result};
+use super::{Error, Result};
 use futures::{future, Future, future::Either, Stream};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
@@ -138,12 +138,13 @@ fn list_dir(root_dir: &Path, path: &Path)
 fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
     let mut buf = String::new();
 
-    writeln!(buf, "<div>")?;
+    writeln!(buf, "<div>")
+        .map_err(Error::WriteInDirList)?;
 
     let dot_dot = OsStr::new("..");
 
     for path in paths {
-        let full_url = path.strip_prefix(root_dir)?;
+        let full_url = path.strip_prefix(root_dir).map_err(Error::StripPrefixInDirList)?;
         let maybe_dot_dot = || if path.ends_with("..") {
             Some(dot_dot)
         } else {
@@ -155,7 +156,8 @@ fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
                 writeln!(buf,
                          "<div><a href='/{}'>{}</a></div>",
                          full_url.display(),
-                         file_name)?;
+                         file_name)
+                    .map_err(Error::WriteInDirList)?;
             } else {
                 warn!("non-unicode path: {}", file_name.to_string_lossy());
             }
@@ -164,7 +166,8 @@ fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
         }
     }
 
-    writeln!(buf, "</div>")?;
+    writeln!(buf, "</div>")
+        .map_err(Error::WriteInDirList)?;
 
     let cfg = HtmlCfg {
         title: String::new(),
