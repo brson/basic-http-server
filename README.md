@@ -1,6 +1,6 @@
 # `basic-http-server`
 
-A simple HTTP server, for learning and local doc development.
+A simple static HTTP server, for learning and local doc development.
 
 `basic-http-server` is designed for two purposes:
 
