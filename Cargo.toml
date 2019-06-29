@@ -3,9 +3,10 @@ name = "basic-http-server"
 version = "0.6.0"
 authors = ["Brian Anderson <andersrb@gmail.com>"]
 license = "MIT/Apache-2.0"
-description = "A basic HTTP file server, for learning and local doc development"
+description = "A simple static HTTP file server, for learning and local doc development"
 homepage = "https://github.com/brson/basic-http-server"
 repository = "https://github.com/brson/basic-http-server"
+readme = "README.md"
 edition = "2018"
 
 [dependencies]
