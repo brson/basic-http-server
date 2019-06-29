@@ -9,23 +9,17 @@ repository = "https://github.com/brson/basic-http-server"
 edition = "2018"
 
 [dependencies]
-clap = "2.25.0"             # CLI parsing
-
-log = "0.4.6"               # logging
-env_logger = "0.6.1"        # CLI logging via RUST_LOG
-
-futures = "0.1.14"          # Rust futures
-tokio = "0.1.17"            # async I/O runtime
-tokio-fs = "0.1.6"          # async file I/O
-
-hyper = "0.12.22"           # HTTP server
-http = "0.1.15"             # HTTP definitions
-mime = "0.3.13"             # MIME definitions
-
-handlebars = "2.0.0-beta.2" # HTML templating
-serde = "1.0.90"            # needed by derive(Serialize)
-serde_derive = "1.0.90"     # derive(Serialize), needed by handlebars
-
-derive_more = "0.14.0"      # derive(Display)
-
-comrak = "0.6.0"            # markdown parsing
+clap = "2.33.0"
+comrak = "0.6.2"
+derive_more = "0.15.0"
+env_logger = "0.6.1"
+futures = "0.1.28"
+handlebars = "1.1.0"
+http = "0.1.17"
+hyper = "0.12.31"
+log = "0.4.6"
+mime = "0.3.13"
+serde = "1.0.94"
+serde_derive = "1.0.94"
+tokio = "0.1.21"
+tokio-fs = "0.1.6"
