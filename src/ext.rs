@@ -17,7 +17,7 @@ pub fn serve(
     config: Config,
     req: Request<Body>,
     resp: super::Result<Response<Body>>,
-) -> Box<Future<Item = Response<Body>, Error = Error> + Send + 'static> {
+) -> Box<dyn Future<Item = Response<Body>, Error = Error> + Send + 'static> {
     trace!("checking extensions");
 
     if !config.use_extensions {

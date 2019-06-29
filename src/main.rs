@@ -7,7 +7,6 @@ extern crate log;
 #[macro_use]
 extern crate serde_derive;
 
-use clap::App;
 use env_logger::{Builder, Env};
 use futures::{future, future::Either, Future};
 use handlebars::Handlebars;
@@ -20,6 +19,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
 };
+use structopt::StructOpt;
 use tokio::fs::File;
 
 // Developer extensions
@@ -57,7 +57,7 @@ fn run() -> Result<()> {
     // Create the configuration from the command line arguments. It
     // includes the IP address and port to listen on and the path to use
     // as the HTTP server's root directory.
-    let config = parse_config_from_cmdline()?;
+    let config = Config::from_args();
 
     // Display the configuration to be helpful
     info!("basic-http-server {}", env!("CARGO_PKG_VERSION"));
@@ -94,33 +94,24 @@ fn run() -> Result<()> {
 }
 
 /// The configuration object, parsed from command line options
-#[derive(Clone)]
+#[derive(Clone, StructOpt)]
+#[structopt(about = "A basic HTTP file server")]
 pub struct Config {
+    /// Sets the IP:PORT combination
+    #[structopt(
+        name = "ADDR",
+        short = "a",
+        long = "addr",
+        parse(try_from_str),
+        default_value = "127.0.0.1:4000"
+    )]
     addr: SocketAddr,
+    /// Sets the root dir
+    #[structopt(name = "ROOT", parse(from_os_str), default_value = ".")]
     root_dir: PathBuf,
+    /// Enable developer extensions
+    #[structopt(short = "x")]
     use_extensions: bool,
-}
-
-fn parse_config_from_cmdline() -> Result<Config> {
-    let matches = App::new("basic-http-server")
-        .version(env!("CARGO_PKG_VERSION"))
-        .about("A basic HTTP file server")
-        .args_from_usage(
-            "[ROOT] 'Sets the root dir (default \".\")'
-             [ADDR] -a --addr=[ADDR] 'Sets the IP:PORT combination (default \"127.0.0.1:4000\")',
-             [EXT] -x 'Enable developer extensions'",
-        )
-        .get_matches();
-
-    let addr = matches.value_of("ADDR").unwrap_or("127.0.0.1:4000");
-    let root_dir = matches.value_of("ROOT").unwrap_or(".");
-    let ext = matches.is_present("EXT");
-
-    Ok(Config {
-        addr: addr.parse().map_err(Error::AddrParse)?,
-        root_dir: PathBuf::from(root_dir),
-        use_extensions: ext,
-    })
 }
 
 /// The function that returns a future of an HTTP response for each hyper
