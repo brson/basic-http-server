@@ -423,9 +423,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     // blanket "pass-through" error types
 
-    #[display(fmt = "Extension error")]
-    Ext(ext::Error),
-
     #[display(fmt = "HTTP error")]
     Http(http::Error),
 
@@ -436,6 +433,9 @@ pub enum Error {
 
     #[display(fmt = "failed to parse IP address")]
     AddrParse(std::net::AddrParseError),
+
+    #[display(fmt = "markdown is not UTF-8")]
+    MarkdownUtf8,
 
     #[display(fmt = "failed to strip prefix in directory listing")]
     StripPrefixInDirList(std::path::StripPrefixError),
@@ -455,21 +455,15 @@ impl StdError for Error {
         use Error::*;
 
         match self {
-            Ext(e) => Some(e),
             Http(e) => Some(e),
             Io(e) => Some(e),
             AddrParse(e) => Some(e),
+            MarkdownUtf8 => None,
             StripPrefixInDirList(e) => Some(e),
             TemplateRender(e) => Some(e),
             UrlToPath => None,
             WriteInDirList(e) => Some(e),
         }
-    }
-}
-
-impl From<ext::Error> for Error {
-    fn from(e: ext::Error) -> Error {
-        Error::ext(e)
     }
 }
 

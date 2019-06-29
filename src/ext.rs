@@ -11,7 +11,7 @@ use std::io;
 use super::{Config, HtmlCfg};
 use tokio::fs::{self, File};
 use tokio_fs::DirEntry;
-use std::error::Error as StdError;
+use super::{Error, Result};
 
 pub fn serve(config: Config,
              req: Request<Body>,
@@ -174,39 +174,4 @@ fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
         body: buf,
     };
     super::render_html(cfg)
-}
-
-/// A custom `Result` typedef
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// Errors for extensions
-#[derive(Debug, Display)]
-pub enum Error {
-    // blanket "pass-through" error types
-
-    #[display(fmt = "I/O error")]
-    Io(io::Error),
-
-    // custom "semantic" error types
-
-    #[display(fmt = "markdown is not UTF-8")]
-    MarkdownUtf8,
-
-}
-
-impl StdError for Error {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        use Error::*;
-
-        match self {
-            Io(e) => Some(e),
-            MarkdownUtf8 => None,
-        }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Error {
-        Error::Io(e)
-    }
 }

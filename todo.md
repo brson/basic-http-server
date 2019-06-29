@@ -12,4 +12,5 @@
 - add a way to explicitly request an index listing
 - fix default mime type
 - add more mime types, maybe use tree_magic or mime_guess
-- deal with more error codes
+- deal with more http error codes
+- split Error into ext::Error
