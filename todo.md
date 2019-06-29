@@ -1,0 +1,16 @@
+- error on binding bound socket
+- structopt
+- catch and report panic
+- prevent responding files outside of root_dir
+- add context to errors
+- async is_dir
+- make errors carry URLs
+- make errors semantic
+- with -x, check missing .html files for .md instead
+- strip -- comments from top of md files
+- display README.md for dirs by default
+- add a way to explicitly request an index listing
+- fix default mime type
+- add more mime types, maybe use tree_magic or mime_guess
+- deal with more http error codes
+- split Error into ext::Error
