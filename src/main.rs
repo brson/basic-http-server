@@ -11,8 +11,8 @@ use clap::App;
 use env_logger::{Builder, Env};
 use futures::{future, future::Either, Future};
 use handlebars::Handlebars;
-use http::Uri;
 use http::status::StatusCode;
+use http::Uri;
 use hyper::{header, service::service_fn, Body, Request, Response, Server};
 use std::{
     error::Error as StdError,
@@ -78,7 +78,8 @@ fn run() -> Result<()> {
                     e
                 })
             })
-        }).map_err(|e| {
+        })
+        .map_err(|e| {
             // Log any errors that result from hyper's `Server` future failing.
             // The tokio runtime expects to run a future that doesn't error so
             // not sure how to square that with hyper's `Server` carrying an
@@ -125,30 +126,27 @@ fn parse_config_from_cmdline() -> Result<Config> {
 /// The function that returns a future of an HTTP response for each hyper
 /// Request that is received. Errors are turned into an Error response (404 or
 /// 500), and never propagated upward for hyper to deal with.
-fn serve(
-    config: &Config,
-    req: Request<Body>,
-) -> impl Future<Item = Response<Body>, Error = Error> {
+fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Body>, Error = Error> {
     let config = config.clone();
-    serve_file(&req, &config.root_dir).then(
-        // Give developer extensions an opportunity to post-process the request/response pair
-        move |resp| {
-            ext::serve(config, req, resp).map_err(Error::from)
-        }
-    ).then(|maybe_resp| {
-        // Turn any errors into an HTTP error response.
-        //
-        // This `Either` future is a simple way to create a concrete future
-        // (i.e. a non-boxed future) of one of two different `Future` types.
-        // We'll use it a lot.
-        //
-        // Here type `A` is a `FutureResult`, and type `B` is some `impl Future`
-        // returned by `make_error_response`.
-        match maybe_resp {
-            Ok(r) => Either::A(future::ok(r)),
-            Err(e) => Either::B(make_error_response(e)),
-        }
-    })
+    serve_file(&req, &config.root_dir)
+        .then(
+            // Give developer extensions an opportunity to post-process the request/response pair
+            move |resp| ext::serve(config, req, resp).map_err(Error::from),
+        )
+        .then(|maybe_resp| {
+            // Turn any errors into an HTTP error response.
+            //
+            // This `Either` future is a simple way to create a concrete future
+            // (i.e. a non-boxed future) of one of two different `Future` types.
+            // We'll use it a lot.
+            //
+            // Here type `A` is a `FutureResult`, and type `B` is some `impl Future`
+            // returned by `make_error_response`.
+            match maybe_resp {
+                Ok(r) => Either::A(future::ok(r)),
+                Err(e) => Either::B(make_error_response(e)),
+            }
+        })
 }
 
 /// Serve static files from a root directory
@@ -169,11 +167,11 @@ fn serve_file(
         }
 
         if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
-            Either::B(File::open(path.clone()).map_err(
-                Error::from
-            ).and_then(move |file| {
-                respond_with_file(file, path)
-            }))
+            Either::B(
+                File::open(path.clone())
+                    .map_err(Error::from)
+                    .and_then(move |file| respond_with_file(file, path)),
+            )
         } else {
             Either::A(future::err(Error::UrlToPath))
         }
@@ -214,7 +212,7 @@ fn try_dir_redirect(
                         .header(header::LOCATION, new_loc)
                         .body(Body::empty())
                         .map(Some)
-                        .map_err(Error::from)
+                        .map_err(Error::from),
                 )
             } else {
                 future::ok(None)
@@ -235,28 +233,24 @@ fn respond_with_file(
     file: tokio::fs::File,
     path: PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
-    read_file(file)
-        .and_then(move |buf| {
-            let mime_type = file_path_mime(&path);
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_LENGTH, buf.len() as u64)
-                .header(header::CONTENT_TYPE, mime_type.as_ref())
-                .body(Body::from(buf))
-                .map_err(Error::from)
-        })
+    read_file(file).and_then(move |buf| {
+        let mime_type = file_path_mime(&path);
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_LENGTH, buf.len() as u64)
+            .header(header::CONTENT_TYPE, mime_type.as_ref())
+            .body(Body::from(buf))
+            .map_err(Error::from)
+    })
 }
 
 /// Read a file and return a future of the buffer
-fn read_file(
-    file: tokio::fs::File,
-) -> impl Future<Item = Vec<u8>, Error = Error> {
+fn read_file(file: tokio::fs::File) -> impl Future<Item = Vec<u8>, Error = Error> {
     let buf: Vec<u8> = Vec::new();
     tokio::io::read_to_end(file, buf)
         .map_err(Error::Io)
         .and_then(|(_read_handle, buf)| future::ok(buf))
 }
-
 
 /// Get a MIME type based on the file etension
 fn file_path_mime(file_path: &Path) -> mime::Mime {
@@ -265,7 +259,9 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
         Some("css") => mime::TEXT_CSS,
         Some("js") => mime::TEXT_JAVASCRIPT,
         Some("jpg") => mime::IMAGE_JPEG,
-        Some("md") => "text/markdown; charset=UTF-8".parse::<mime::Mime>().unwrap(),
+        Some("md") => "text/markdown; charset=UTF-8"
+            .parse::<mime::Mime>()
+            .unwrap(),
         Some("png") => mime::IMAGE_PNG,
         Some("svg") => mime::IMAGE_SVG,
         Some("wasm") => "application/wasm".parse::<mime::Mime>().unwrap(),
@@ -277,16 +273,15 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
 /// Find the local path for a request URI, converting directories to the
 /// `index.html` file.
 fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
-    local_path_for_request(uri, root_dir)
-        .map(|mut p: PathBuf| {
-            if p.is_dir() {
-                p.push("index.html");
-                debug!("trying {} for directory URL", p.display());
-            } else {
-                trace!("trying path as from URL");
-            }
-            p
-        })
+    local_path_for_request(uri, root_dir).map(|mut p: PathBuf| {
+        if p.is_dir() {
+            p.push("index.html");
+            debug!("trying {} for directory URL", p.display());
+        } else {
+            trace!("trying path as from URL");
+        }
+        p
+    })
 }
 
 /// Map the request's URI to a local path
@@ -294,7 +289,7 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     let request_path = uri.path();
 
     debug!("raw URI to path: {}", request_path);
-    
+
     // This is equivalent to checking for hyper::RequestUri::AbsoluteUri
     if !request_path.starts_with("/") {
         debug!("found non-absolute path");
@@ -322,17 +317,15 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 /// Convert an error to an HTTP error response future, with correct response code.
 fn make_error_response(e: Error) -> impl Future<Item = Response<Body>, Error = Error> {
     match e {
-        Error::Io(e) => {
-            Either::A(make_io_error_response(e))
-        }
-        e => {
-            Either::B(make_internal_server_error_response(e))
-        }
+        Error::Io(e) => Either::A(make_io_error_response(e)),
+        e => Either::B(make_internal_server_error_response(e)),
     }
 }
 
 /// Convert an error into a 500 internal server error, and log it.
-fn make_internal_server_error_response(err: Error) -> impl Future<Item = Response<Body>, Error = Error> {
+fn make_internal_server_error_response(
+    err: Error,
+) -> impl Future<Item = Response<Body>, Error = Error> {
     log_error_chain(&err);
     make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -344,25 +337,21 @@ fn make_io_error_response(error: io::Error) -> impl Future<Item = Response<Body>
         io::ErrorKind::NotFound => {
             debug!("{}", error);
             Either::A(make_error_response_from_code(StatusCode::NOT_FOUND))
-        },
+        }
         _ => Either::B(make_internal_server_error_response(Error::Io(error))),
     }
 }
 
 /// Make an error response given an HTTP status code.
-fn make_error_response_from_code(status: StatusCode)
--> impl Future<Item = Response<Body>, Error = Error> {
-    future::result({
-        render_error_html(status)
-    }).and_then(move |body| {
-        html_str_to_response(body, status)
-    })
+fn make_error_response_from_code(
+    status: StatusCode,
+) -> impl Future<Item = Response<Body>, Error = Error> {
+    future::result({ render_error_html(status) })
+        .and_then(move |body| html_str_to_response(body, status))
 }
 
 /// Make an HTTP response from a HTML string.
-fn html_str_to_response(body: String, status: StatusCode)
-                        -> Result<Response<Body>>
-{
+fn html_str_to_response(body: String, status: StatusCode) -> Result<Response<Body>> {
     Response::builder()
         .status(status)
         .header(header::CONTENT_LENGTH, body.len())
@@ -385,7 +374,8 @@ struct HtmlCfg {
 /// Render an HTML page with handlebars, the template and the configuration data.
 fn render_html(cfg: HtmlCfg) -> Result<String> {
     let reg = Handlebars::new();
-    let rendered = reg.render_template(HTML_TEMPLATE, &cfg)
+    let rendered = reg
+        .render_template(HTML_TEMPLATE, &cfg)
         .map_err(Error::TemplateRender)?;
     Ok(rendered)
 }
@@ -422,7 +412,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Display)]
 pub enum Error {
     // blanket "pass-through" error types
-
     #[display(fmt = "HTTP error")]
     Http(http::Error),
 
@@ -430,7 +419,6 @@ pub enum Error {
     Io(io::Error),
 
     // custom "semantic" error types
-
     #[display(fmt = "failed to parse IP address")]
     AddrParse(std::net::AddrParseError),
 
