@@ -65,8 +65,7 @@ fn run() -> Result<()> {
     info!("root dir: {}", config.root_dir.display());
     info!("extensions: {}", config.use_extensions);
 
-    let server = Server::try_bind(&config.addr)
-        .map_err(|e| translate_bind_error(e, config.addr))?
+    let server = Server::bind(&config.addr)
         .serve(move || {
             let config = config.clone();
             service_fn(move |req| {
@@ -113,19 +112,6 @@ pub struct Config {
     /// Enable developer extensions
     #[structopt(short = "x")]
     use_extensions: bool,
-}
-
-/// Translate a hyper error into our error for binding
-fn translate_bind_error(e: hyper::Error, addr: SocketAddr) -> Error {
-    if let Some(os_error) = e
-        .source()
-        .and_then(|source| source.downcast_ref::<io::Error>())
-    {
-        if os_error.kind() == io::ErrorKind::AddrInUse {
-            return Error::AddrInUse(addr);
-        }
-    }
-    Error::BindWithHyper(e)
 }
 
 /// The function that returns a future of an HTTP response for each hyper
@@ -427,12 +413,6 @@ pub enum Error {
     #[display(fmt = "failed to parse IP address")]
     AddrParse(std::net::AddrParseError),
 
-    #[display(fmt = "the address \"{}\" is already in use", _0)]
-    AddrInUse(SocketAddr),
-
-    #[display(fmt = "failed to bind server to socket")]
-    BindWithHyper(hyper::Error),
-
     #[display(fmt = "markdown is not UTF-8")]
     MarkdownUtf8,
 
@@ -457,8 +437,6 @@ impl StdError for Error {
             Http(e) => Some(e),
             Io(e) => Some(e),
             AddrParse(e) => Some(e),
-            AddrInUse(_) => None,
-            BindWithHyper(e) => Some(e),
             MarkdownUtf8 => None,
             StripPrefixInDirList(e) => Some(e),
             TemplateRender(e) => Some(e),
