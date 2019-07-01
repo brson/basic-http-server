@@ -1,5 +1,4 @@
-- error on binding bound socket
-- structopt
+- error on binding bound socket / port
 - catch and report panic
 - prevent responding files outside of root_dir
 - add context to errors
