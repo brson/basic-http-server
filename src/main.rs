@@ -57,7 +57,7 @@ fn run() -> Result<()> {
     // Create the configuration from the command line arguments. It
     // includes the IP address and port to listen on and the path to use
     // as the HTTP server's root directory.
-    let config = Config::from_args();
+    let config = Config::from_args_implied();
 
     // Display the configuration to be helpful
     info!("basic-http-server {}", env!("CARGO_PKG_VERSION"));
@@ -112,6 +112,19 @@ pub struct Config {
     /// Enable developer extensions
     #[structopt(short = "x")]
     use_extensions: bool,
+    /// Single page app mode (404s are redirected to '/') (implies '-x')
+    #[structopt(long = "single-page-app")]
+    single_page_app_mode: bool,
+}
+
+impl Config {
+    fn from_args_implied() -> Self {
+        let mut config = Config::from_args();
+        if config.single_page_app_mode {
+            config.use_extensions = true;
+        }
+        config
+    }
 }
 
 /// The function that returns a future of an HTTP response for each hyper
