@@ -27,7 +27,7 @@ pub fn serve(
     let path = super::local_path_for_request(&req.uri(), &config.root_dir);
     if config.single_page_app_mode {
         if let Some(ref path) = path {
-            if !path.is_file() && path.extension().is_none() {
+            if !path.is_file() {
                 let display_path = path.display().to_string();
                 info!(
                     "replacing 404 or directory redirect for \"{}\" with index page",
