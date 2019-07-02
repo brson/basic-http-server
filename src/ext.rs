@@ -26,16 +26,21 @@ pub fn serve(
 
     let path = super::local_path_for_request(&req.uri(), &config.root_dir);
     if config.single_page_app_mode {
-        // Path is not a file
-        if path.as_ref().map(|p| !p.is_file()).unwrap_or(false) {
-            info!("replacing 404 or directory redirect with index page");
-            let root_index = config.root_dir.join("index.html");
-            if root_index.is_file() {
-                return Box::new(
-                    File::open(root_index.clone())
-                        .map_err(Error::from)
-                        .and_then(move |file| super::respond_with_file(file, root_index)),
+        if let Some(ref path) = path {
+            if !path.is_file() && path.extension().is_none() {
+                let display_path = path.display().to_string();
+                info!(
+                    "replacing 404 or directory redirect for \"{}\" with index page",
+                    &display_path[1..] // skip the initial '.'
                 );
+                let root_index = config.root_dir.join("index.html");
+                if root_index.is_file() {
+                    return Box::new(
+                        File::open(root_index.clone())
+                            .map_err(Error::from)
+                            .and_then(move |file| super::respond_with_file(file, root_index)),
+                    );
+                }
             }
         }
     }
