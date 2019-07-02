@@ -18,6 +18,7 @@ use std::{
     io,
     net::SocketAddr,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use structopt::StructOpt;
 use tokio::fs::File;
@@ -57,19 +58,25 @@ fn run() -> Result<()> {
     // Create the configuration from the command line arguments. It
     // includes the IP address and port to listen on and the path to use
     // as the HTTP server's root directory.
-    let config = Config::from_args();
+    let config = Arc::new(Config::from_args());
 
     // Display the configuration to be helpful
     info!("basic-http-server {}", env!("CARGO_PKG_VERSION"));
     info!("addr: http://{}", config.addr);
     info!("root dir: {}", config.root_dir.display());
     info!("extensions: {}", config.use_extensions);
+    if config.allow_escape_root {
+        warn!("allowing serving files outside root dir");
+    } else {
+        info!("preventing serving files outside root dir");
+    }
 
     let server = Server::bind(&config.addr)
         .serve(move || {
             let config = config.clone();
             service_fn(move |req| {
-                serve(&config, req).map_err(|e| {
+                let config = config.clone();
+                serve(config, req).map_err(|e| {
                     // Log any errors that result from handling a single HTTP
                     // request. This _should_ be impossible - we expect our
                     // service function to map all errors to HTTP error
@@ -112,17 +119,26 @@ pub struct Config {
     /// Enable developer extensions
     #[structopt(short = "x")]
     use_extensions: bool,
+    /// Allow serving files outside the root given by <ROOT>
+    ///
+    /// Note that this allows access to *all files* on your computer - so don't use this on
+    /// untrusted networks.
+    #[structopt(long = "allow-escape-root")]
+    allow_escape_root: bool,
 }
 
 /// The function that returns a future of an HTTP response for each hyper
 /// Request that is received. Errors are turned into an Error response (404 or
 /// 500), and never propagated upward for hyper to deal with.
-fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Body>, Error = Error> {
-    let config = config.clone();
-    serve_file(&req, &config.root_dir)
+fn serve<'a>(
+    config: Arc<Config>,
+    req: Request<Body>,
+) -> impl Future<Item = Response<Body>, Error = Error> + 'a {
+    let config2 = config.clone();
+    serve_file(&req, config)
         .then(
             // Give developer extensions an opportunity to post-process the request/response pair
-            move |resp| ext::serve(config, req, resp).map_err(Error::from),
+            move |resp| ext::serve(config2, req, resp).map_err(Error::from),
         )
         .then(|maybe_resp| {
             // Turn any errors into an HTTP error response.
@@ -143,21 +159,20 @@ fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Bod
 /// Serve static files from a root directory
 fn serve_file(
     req: &Request<Body>,
-    root_dir: &PathBuf,
+    config: Arc<Config>,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let uri = req.uri().clone();
-    let root_dir = root_dir.clone();
 
     // First, try to do a redirect per `try_dir_redirect`. If that doesn't
     // happen, then find the path to the static file we want to serve - which
     // may be `index.html` for directories - and send a response containing that
     // file.
-    try_dir_redirect(req, &root_dir).and_then(move |maybe_redir_resp| {
+    try_dir_redirect(req, config.clone()).and_then(move |maybe_redir_resp| {
         if let Some(redir_resp) = maybe_redir_resp {
             return Either::A(future::ok(redir_resp));
         }
 
-        if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
+        if let Some(path) = local_path_with_maybe_index(&uri, &*config) {
             Either::B(
                 File::open(path.clone())
                     .map_err(Error::from)
@@ -184,11 +199,11 @@ fn serve_file(
 /// This seems to match the behavior of other static web servers.
 fn try_dir_redirect(
     req: &Request<Body>,
-    root_dir: &PathBuf,
+    config: Arc<Config>,
 ) -> impl Future<Item = Option<Response<Body>>, Error = Error> {
     if !req.uri().path().ends_with("/") {
         debug!("path does not end with /");
-        if let Some(path) = local_path_for_request(req.uri(), root_dir) {
+        if let Some(path) = local_path_for_request(req.uri(), &*config) {
             if path.is_dir() {
                 let mut new_loc = req.uri().path().to_string();
                 new_loc.push_str("/");
@@ -263,8 +278,8 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
 
 /// Find the local path for a request URI, converting directories to the
 /// `index.html` file.
-fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
-    local_path_for_request(uri, root_dir).map(|mut p: PathBuf| {
+fn local_path_with_maybe_index(uri: &Uri, config: &Config) -> Option<PathBuf> {
+    local_path_for_request(uri, config).map(|mut p: PathBuf| {
         if p.is_dir() {
             p.push("index.html");
             debug!("trying {} for directory URL", p.display());
@@ -276,7 +291,7 @@ fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Map the request's URI to a local path
-fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
+fn local_path_for_request(uri: &Uri, config: &Config) -> Option<PathBuf> {
     let request_path = uri.path();
 
     debug!("raw URI to path: {}", request_path);
@@ -286,17 +301,29 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
         debug!("found non-absolute path");
         return None;
     }
+    let request_path = &request_path[1..];
 
     // Trim off the url parameters starting with '?'
     let end = request_path.find('?').unwrap_or(request_path.len());
     let request_path = &request_path[0..end];
 
     // Append the requested path to the root directory
-    let mut path = root_dir.to_owned();
-    if request_path.starts_with('/') {
-        path.push(&request_path[1..]);
-    } else {
-        debug!("found non-absolute path");
+    let path = config.root_dir.join(request_path);
+    // Check that the resolved file location isn't outside the root folder
+    if !config.allow_escape_root
+        && !path
+            .canonicalize()
+            .map(|resolved| resolved.starts_with(&config.root_dir))
+            .unwrap_or(false)
+    {
+        warn!(
+            "found path that resolves outside of \"{}\", the root directory",
+            config
+                .root_dir
+                .canonicalize()
+                .unwrap_or(Path::new("unknown").to_path_buf())
+                .display()
+        );
         return None;
     }
 

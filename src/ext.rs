@@ -10,11 +10,12 @@ use std::ffi::OsStr;
 use std::fmt::Write;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs::{self, File};
 use tokio_fs::DirEntry;
 
 pub fn serve(
-    config: Config,
+    config: Arc<Config>,
     req: Request<Body>,
     resp: super::Result<Response<Body>>,
 ) -> Box<dyn Future<Item = Response<Body>, Error = Error> + Send + 'static> {
@@ -24,7 +25,7 @@ pub fn serve(
         return Box::new(future::result(resp));
     }
 
-    let path = super::local_path_for_request(&req.uri(), &config.root_dir);
+    let path = super::local_path_for_request(&req.uri(), &*config);
     if path.is_none() {
         return Box::new(future::result(resp));
     }
