@@ -6,6 +6,7 @@ use comrak::ComrakOptions;
 use futures::{future, future::Either, Future, Stream};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use std::ffi::OsStr;
 use std::fmt::Write;
 use std::io;
@@ -163,14 +164,24 @@ fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
         };
         if let Some(file_name) = path.file_name().or_else(maybe_dot_dot) {
             if let Some(file_name) = file_name.to_str() {
-                // TODO: Make this a relative URL
-                writeln!(
-                    buf,
-                    "<div><a href='/{}'>{}</a></div>",
-                    full_url.display(),
-                    file_name
-                )
-                .map_err(Error::WriteInDirList)?;
+                if let Some(full_url) = full_url.to_str() {
+                    // %-encode filenames
+                    // https://url.spec.whatwg.org/#fragment-percent-encode-set
+                    const FRAGMENT_SET: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
+                    const PATH_SET: &AsciiSet = &FRAGMENT_SET.add(b'#').add(b'?').add(b'{').add(b'}');
+                    let full_url = utf8_percent_encode(full_url, &PATH_SET);
+
+                    // TODO: Make this a relative URL
+                    writeln!(
+                        buf,
+                        "<div><a href='/{}'>{}</a></div>",
+                        full_url,
+                        file_name
+                    )
+                        .map_err(Error::WriteInDirList)?;
+                } else {
+                    warn!("non-unicode url: {}", full_url.to_string_lossy());
+                }
             } else {
                 warn!("non-unicode path: {}", file_name.to_string_lossy());
             }
