@@ -13,6 +13,7 @@ use handlebars::Handlebars;
 use http::status::StatusCode;
 use http::Uri;
 use hyper::{header, service::service_fn, Body, Request, Response, Server};
+use percent_encoding::percent_decode_str;
 use std::{
     error::Error as StdError,
     io,
@@ -277,6 +278,8 @@ fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 
 /// Map the request's URI to a local path
 fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
+    debug!("raw URI: {}", uri);
+
     let request_path = uri.path();
 
     debug!("raw URI to path: {}", request_path);
@@ -290,6 +293,16 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     // Trim off the url parameters starting with '?'
     let end = request_path.find('?').unwrap_or(request_path.len());
     let request_path = &request_path[0..end];
+
+    // Convert %-encoding to actual values
+    let decoded = percent_decode_str(&request_path);
+    let request_path = if let Ok(p) = decoded.decode_utf8() {
+        p
+    } else {
+        debug!("unable to percent-decode URL: {}", request_path);
+        // FIXME: Error handling
+        return None;
+    };
 
     // Append the requested path to the root directory
     let mut path = root_dir.to_owned();
