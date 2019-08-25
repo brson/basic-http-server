@@ -13,3 +13,4 @@
 - add more mime types, maybe use tree_magic or mime_guess
 - deal with more http error codes
 - split Error into ext::Error
+- rst support
