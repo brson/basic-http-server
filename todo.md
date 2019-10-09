@@ -14,3 +14,5 @@
 - deal with more http error codes
 - split Error into ext::Error
 - rst support
+- make plain path links, [index.html], work
+- convert to async/await, tokio 0.2
