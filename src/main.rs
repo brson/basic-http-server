@@ -8,11 +8,12 @@ extern crate log;
 extern crate serde_derive;
 
 use env_logger::{Builder, Env};
-use futures::{future, future::Either, Future};
+use futures::{future, future::Either, Future, FutureExt, TryFutureExt};
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use http::Uri;
-use hyper::{header, service::service_fn, Body, Request, Response, Server};
+use hyper::{header, Body, Request, Response, Server};
+use hyper::service::{make_service_fn, service_fn};
 use percent_encoding::percent_decode_str;
 use std::{
     error::Error as StdError,
@@ -21,10 +22,10 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use tokio::fs::File;
+use tokio::runtime::Runtime;
 
 // Developer extensions
-mod ext;
+//mod ext;
 
 fn main() {
     // Set up our error handling immediately. The situations in which `run` can
@@ -66,30 +67,27 @@ fn run() -> Result<()> {
     info!("root dir: {}", config.root_dir.display());
     info!("extensions: {}", config.use_extensions);
 
-    let server = Server::bind(&config.addr)
-        .serve(move || {
-            let config = config.clone();
-            service_fn(move |req| {
-                serve(&config, req).map_err(|e| {
-                    // Log any errors that result from handling a single HTTP
-                    // request. This _should_ be impossible - we expect our
-                    // service function to map all errors to HTTP error
-                    // responses.
-                    error!("request handler error: {}", e);
-                    e
-                })
+    // Create the service builder that creates a new Hyper service for every
+    // request
+    let make_service = make_service_fn(|_| {
+        let config = config.clone();
+        future::ok::<_, Error>(service_fn(move |req| {
+            serve(&config, req).map_err(|e| {
+                // Log any errors that result from handling a single HTTP
+                // request. This _should_ be impossible - we expect our
+                // service function to map all errors to HTTP error
+                // responses.
+                error!("request handler error: {}", e);
+                e
             })
-        })
-        .map_err(|e| {
-            // Log any errors that result from hyper's `Server` future failing.
-            // The tokio runtime expects to run a future that doesn't error so
-            // not sure how to square that with hyper's `Server` carrying an
-            // error type, but here hyper's error type is mapped to nil.
-            error!("server error: {}", e);
-            ()
-        });
+        }))
+    });
 
-    tokio::run(server);
+    let server = Server::bind(&config.addr)
+        .serve(make_service);
+
+    let rt = Runtime::new()?;
+    rt.block_on(server)?;
 
     Ok(())
 }
@@ -118,13 +116,13 @@ pub struct Config {
 /// The function that returns a future of an HTTP response for each hyper
 /// Request that is received. Errors are turned into an Error response (404 or
 /// 500), and never propagated upward for hyper to deal with.
-fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Body>, Error = Error> {
+fn serve(config: &Config, req: Request<Body>) -> impl Future<Output = Result<Response<Body>>> {
     let config = config.clone();
     serve_file(&req, &config.root_dir)
-        .then(
+        /*.then(
             // Give developer extensions an opportunity to post-process the request/response pair
             move |resp| ext::serve(config, req, resp).map_err(Error::from),
-        )
+        )*/
         .then(|maybe_resp| {
             // Turn any errors into an HTTP error response.
             //
@@ -135,8 +133,8 @@ fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Bod
             // Here type `A` is a `FutureResult`, and type `B` is some `impl Future`
             // returned by `make_error_response`.
             match maybe_resp {
-                Ok(r) => Either::A(future::ok(r)),
-                Err(e) => Either::B(make_error_response(e)),
+                Ok(r) => Either::Left(future::ok(r)),
+                Err(e) => Either::Right(make_error_response(e)),
             }
         })
 }
@@ -145,7 +143,7 @@ fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Bod
 fn serve_file(
     req: &Request<Body>,
     root_dir: &PathBuf,
-) -> impl Future<Item = Response<Body>, Error = Error> {
+) -> impl Future<Output = Result<Response<Body>>> {
     let uri = req.uri().clone();
     let root_dir = root_dir.clone();
 
@@ -155,17 +153,15 @@ fn serve_file(
     // file.
     try_dir_redirect(req, &root_dir).and_then(move |maybe_redir_resp| {
         if let Some(redir_resp) = maybe_redir_resp {
-            return Either::A(future::ok(redir_resp));
+            return Either::Left(future::ok(redir_resp));
         }
 
         if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
-            Either::B(
-                File::open(path.clone())
-                    .map_err(Error::from)
-                    .and_then(move |file| respond_with_file(file, path)),
+            Either::Right(
+                respond_with_file(path)
             )
         } else {
-            Either::A(future::err(Error::UrlToPath))
+            Either::Left(future::err(Error::UrlToPath))
         }
     })
 }
@@ -186,7 +182,7 @@ fn serve_file(
 fn try_dir_redirect(
     req: &Request<Body>,
     root_dir: &PathBuf,
-) -> impl Future<Item = Option<Response<Body>>, Error = Error> {
+) -> impl Future<Output = Result<Option<Response<Body>>>> {
     if !req.uri().path().ends_with("/") {
         debug!("path does not end with /");
         if let Some(path) = local_path_for_request(req.uri(), root_dir) {
@@ -198,7 +194,7 @@ fn try_dir_redirect(
                     new_loc.push_str(query);
                 }
                 info!("redirecting {} to {}", req.uri(), new_loc);
-                future::result(
+                future::ready(
                     Response::builder()
                         .status(StatusCode::FOUND)
                         .header(header::LOCATION, new_loc)
@@ -222,29 +218,25 @@ fn try_dir_redirect(
 /// returned, and `serve` will convert it into the appropriate HTTP error
 /// response.
 fn respond_with_file(
-    file: tokio::fs::File,
     path: PathBuf,
-) -> impl Future<Item = Response<Body>, Error = Error> {
-    read_file(file).and_then(move |buf| {
-        let mime_type = file_path_mime(&path);
-        Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_LENGTH, buf.len() as u64)
-            .header(header::CONTENT_TYPE, mime_type.as_ref())
-            .body(Body::from(buf))
+) -> impl Future<Output = Result<Response<Body>>> {
+    async {
+        tokio::fs::read(&path)
+            .await
             .map_err(Error::from)
-    })
+            .and_then(move |buf| {
+                let mime_type = file_path_mime(&path);
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_LENGTH, buf.len() as u64)
+                    .header(header::CONTENT_TYPE, mime_type.as_ref())
+                    .body(Body::from(buf))
+                    .map_err(Error::from)
+            }).map_err(Error::from)
+    }
 }
 
-/// Read a file and return a future of the buffer
-fn read_file(file: tokio::fs::File) -> impl Future<Item = Vec<u8>, Error = Error> {
-    let buf: Vec<u8> = Vec::new();
-    tokio::io::read_to_end(file, buf)
-        .map_err(Error::Io)
-        .and_then(|(_read_handle, buf)| future::ok(buf))
-}
-
-/// Get a MIME type based on the file etension
+/// Get a MIME type based on the file extension
 fn file_path_mime(file_path: &Path) -> mime::Mime {
     let mime_type = match file_path.extension().and_then(std::ffi::OsStr::to_str) {
         Some("html") => mime::TEXT_HTML,
@@ -319,39 +311,42 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Convert an error to an HTTP error response future, with correct response code.
-fn make_error_response(e: Error) -> impl Future<Item = Response<Body>, Error = Error> {
+fn make_error_response(e: Error) -> impl Future<Output = Result<Response<Body>>> {
     match e {
-        Error::Io(e) => Either::A(make_io_error_response(e)),
-        e => Either::B(make_internal_server_error_response(e)),
+        Error::Io(e) => Either::Left(make_io_error_response(e)),
+        e => Either::Right(make_internal_server_error_response(e)),
     }
 }
 
 /// Convert an error into a 500 internal server error, and log it.
 fn make_internal_server_error_response(
     err: Error,
-) -> impl Future<Item = Response<Body>, Error = Error> {
+) -> impl Future<Output = Result<Response<Body>>> {
     log_error_chain(&err);
     make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// Handle the one special io error (file not found) by returning a 404, otherwise
 /// return a 500.
-fn make_io_error_response(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
+fn make_io_error_response(error: io::Error) -> impl Future<Output = Result<Response<Body>>> {
     match error.kind() {
         io::ErrorKind::NotFound => {
             debug!("{}", error);
-            Either::A(make_error_response_from_code(StatusCode::NOT_FOUND))
+            Either::Left(make_error_response_from_code(StatusCode::NOT_FOUND))
         }
-        _ => Either::B(make_internal_server_error_response(Error::Io(error))),
+        _ => Either::Right(make_internal_server_error_response(Error::Io(error))),
     }
 }
 
 /// Make an error response given an HTTP status code.
 fn make_error_response_from_code(
     status: StatusCode,
-) -> impl Future<Item = Response<Body>, Error = Error> {
-    future::result({ render_error_html(status) })
-        .and_then(move |body| html_str_to_response(body, status))
+) -> impl Future<Output = Result<Response<Body>>> {
+    async move {
+        future::ready({ render_error_html(status) })
+            .await
+            .and_then(move |body| html_str_to_response(body, status))
+    }
 }
 
 /// Make an HTTP response from a HTML string.
@@ -422,6 +417,9 @@ pub enum Error {
     #[display(fmt = "I/O error")]
     Io(io::Error),
 
+    #[display(fmt = "Hyper error")]
+    Hyper(hyper::Error),
+
     // custom "semantic" error types
     #[display(fmt = "failed to parse IP address")]
     AddrParse(std::net::AddrParseError),
@@ -449,6 +447,7 @@ impl StdError for Error {
         match self {
             Http(e) => Some(e),
             Io(e) => Some(e),
+            Hyper(e) => Some(e),
             AddrParse(e) => Some(e),
             MarkdownUtf8 => None,
             StripPrefixInDirList(e) => Some(e),
@@ -468,5 +467,11 @@ impl From<io::Error> for Error {
 impl From<http::Error> for Error {
     fn from(e: http::Error) -> Error {
         Error::Http(e)
+    }
+}
+
+impl From<hyper::Error> for Error {
+    fn from(e: hyper::Error) -> Error {
+        Error::Hyper(e)
     }
 }

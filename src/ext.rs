@@ -3,7 +3,7 @@
 use super::{Config, HtmlCfg};
 use super::{Error, Result};
 use comrak::ComrakOptions;
-use futures::{future, future::Either, Future, Stream};
+use futures::{future, future::Either, Future, Stream, TryFutureExt, StreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
@@ -18,16 +18,16 @@ pub fn serve(
     config: Config,
     req: Request<Body>,
     resp: super::Result<Response<Body>>,
-) -> Box<dyn Future<Item = Response<Body>, Error = Error> + Send + 'static> {
+) -> Box<dyn Future<Output = Result<Response<Body>>> + Send + Unpin + 'static> {
     trace!("checking extensions");
 
     if !config.use_extensions {
-        return Box::new(future::result(resp));
+        return Box::new(future::ready(resp));
     }
 
     let path = super::local_path_for_request(&req.uri(), &config.root_dir);
     if path.is_none() {
-        return Box::new(future::result(resp));
+        return Box::new(future::ready(resp));
     }
     let path = path.unwrap();
     let file_ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
@@ -45,9 +45,9 @@ pub fn serve(
                         move |list_dir_resp| {
                             trace!("using directory list extension");
                             if let Some(f) = list_dir_resp {
-                                Either::A(future::ok(f))
+                                Either::Left(future::ok(f))
                             } else {
-                                Either::B(future::err(Error::from(e)))
+                                Either::Right(future::err(Error::from(e)))
                             }
                         },
                     ))
@@ -60,18 +60,11 @@ pub fn serve(
             }
         }
     } else {
-        Box::new(future::result(resp))
+        Box::new(future::ready(resp))
     }
 }
 
-fn md_path_to_html(path: &Path) -> impl Future<Item = Response<Body>, Error = Error> {
-    File::open(path.to_owned()).then(move |open_result| match open_result {
-        Ok(file) => Either::A(md_file_to_html(file)),
-        Err(e) => Either::B(future::err(Error::Io(e))),
-    })
-}
-
-fn md_file_to_html(file: File) -> impl Future<Item = Response<Body>, Error = Error> {
+fn md_path_to_html(path: &Path) -> impl Future<Output = Result<Response<Body>>> {
     let mut options = ComrakOptions::default();
     // be like GitHub
     options.ext_autolink = true;
@@ -83,7 +76,7 @@ fn md_file_to_html(file: File) -> impl Future<Item = Response<Body>, Error = Err
     options.github_pre_lang = true;
     options.ext_header_ids = Some("user-content-".to_string());
 
-    super::read_file(file)
+    tokio::fs::read(path)
         .and_then(|s| String::from_utf8(s).map_err(|_| Error::MarkdownUtf8))
         .and_then(move |s: String| {
             let html = comrak::markdown_to_html(&s, &options);
@@ -106,16 +99,16 @@ fn md_file_to_html(file: File) -> impl Future<Item = Response<Body>, Error = Err
 fn maybe_list_dir(
     root_dir: &Path,
     path: &Path,
-) -> impl Future<Item = Option<Response<Body>>, Error = Error> {
+) -> impl Future<Output = Result<Option<Response<Body>>>> {
     let root_dir = root_dir.to_owned();
     let path = path.to_owned();
     fs::metadata(path.clone())
         .map_err(Error::from)
         .and_then(move |m| {
             if m.is_dir() {
-                Either::A(list_dir(&root_dir, &path))
+                Either::Left(list_dir(&root_dir, &path))
             } else {
-                Either::B(future::ok(None))
+                Either::Right(future::ok(None))
             }
         })
         .map_err(Error::from)
@@ -124,7 +117,7 @@ fn maybe_list_dir(
 fn list_dir(
     root_dir: &Path,
     path: &Path,
-) -> impl Future<Item = Option<Response<Body>>, Error = Error> {
+) -> impl Future<Output = Result<Option<Response<Body>>>> {
     let root_dir = root_dir.to_owned();
     let up_dir = path.join("..");
     fs::read_dir(path.to_owned())
