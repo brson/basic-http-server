@@ -8,7 +8,6 @@ extern crate log;
 extern crate serde_derive;
 
 use env_logger::{Builder, Env};
-use futures::{future, future::Either, Future, FutureExt, TryFutureExt};
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use http::Uri;
@@ -68,19 +67,31 @@ fn run() -> Result<()> {
     info!("extensions: {}", config.use_extensions);
 
     // Create the service builder that creates a new Hyper service for every
-    // request
+    // connection
     let make_service = make_service_fn(|_| {
         let config = config.clone();
-        future::ok::<_, Error>(service_fn(move |req| {
-            serve(&config, req).map_err(|e| {
-                // Log any errors that result from handling a single HTTP
-                // request. This _should_ be impossible - we expect our
-                // service function to map all errors to HTTP error
-                // responses.
-                error!("request handler error: {}", e);
-                e
-            })
-        }))
+
+        async {
+            let service = service_fn(move |req| {
+                let config = config.clone();
+
+                async {
+                    let resp = serve(config, req).await;
+
+                    if let Err(ref e) = resp {
+                        // Log any errors that result from handling a single HTTP
+                        // request. This _should_ be impossible - we expect our
+                        // service function to map all errors to HTTP error
+                        // responses.
+                        error!("request handler error: {}", e);
+                    }
+
+                    resp
+                }
+            });
+
+            Ok::<_, Error>(service)
+        }
     });
 
     let server = Server::bind(&config.addr)
@@ -116,34 +127,32 @@ pub struct Config {
 /// The function that returns a future of an HTTP response for each hyper
 /// Request that is received. Errors are turned into an Error response (404 or
 /// 500), and never propagated upward for hyper to deal with.
-fn serve(config: &Config, req: Request<Body>) -> impl Future<Output = Result<Response<Body>>> {
-    let config = config.clone();
-    serve_file(&req, &config.root_dir)
+async fn serve(config: Config, req: Request<Body>) -> Result<Response<Body>> {
+    let maybe_resp = serve_file(&req, &config.root_dir).await;
         /*.then(
             // Give developer extensions an opportunity to post-process the request/response pair
             move |resp| ext::serve(config, req, resp).map_err(Error::from),
         )*/
-        .then(|maybe_resp| {
-            // Turn any errors into an HTTP error response.
-            //
-            // This `Either` future is a simple way to create a concrete future
-            // (i.e. a non-boxed future) of one of two different `Future` types.
-            // We'll use it a lot.
-            //
-            // Here type `A` is a `FutureResult`, and type `B` is some `impl Future`
-            // returned by `make_error_response`.
-            match maybe_resp {
-                Ok(r) => Either::Left(future::ok(r)),
-                Err(e) => Either::Right(make_error_response(e)),
-            }
-        })
+
+    // Turn any errors into an HTTP error response.
+    //
+    // This `Either` future is a simple way to create a concrete future
+    // (i.e. a non-boxed future) of one of two different `Future` types.
+    // We'll use it a lot.
+    //
+    // Here type `A` is a `FutureResult`, and type `B` is some `impl Future`
+    // returned by `make_error_response`.
+    match maybe_resp {
+        Ok(r) => Ok(r),
+        Err(e) => Ok(make_error_response(e).await?),
+    }
 }
 
 /// Serve static files from a root directory
-fn serve_file(
+async fn serve_file(
     req: &Request<Body>,
     root_dir: &PathBuf,
-) -> impl Future<Output = Result<Response<Body>>> {
+) -> Result<Response<Body>> {
     let uri = req.uri().clone();
     let root_dir = root_dir.clone();
 
@@ -151,19 +160,17 @@ fn serve_file(
     // happen, then find the path to the static file we want to serve - which
     // may be `index.html` for directories - and send a response containing that
     // file.
-    try_dir_redirect(req, &root_dir).and_then(move |maybe_redir_resp| {
-        if let Some(redir_resp) = maybe_redir_resp {
-            return Either::Left(future::ok(redir_resp));
-        }
+    let maybe_redir_resp = try_dir_redirect(req, &root_dir)?;
 
-        if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
-            Either::Right(
-                respond_with_file(path)
-            )
-        } else {
-            Either::Left(future::err(Error::UrlToPath))
-        }
-    })
+    if let Some(redir_resp) = maybe_redir_resp {
+        return Ok(redir_resp);
+    }
+
+    if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
+        Ok(respond_with_file(path).await?)
+    } else {
+        Err(Error::UrlToPath)
+    }
 }
 
 /// If we get a URL without trailing "/" that can be mapped to a directory, then
@@ -182,7 +189,7 @@ fn serve_file(
 fn try_dir_redirect(
     req: &Request<Body>,
     root_dir: &PathBuf,
-) -> impl Future<Output = Result<Option<Response<Body>>>> {
+) -> Result<Option<Response<Body>>> {
     if !req.uri().path().ends_with("/") {
         debug!("path does not end with /");
         if let Some(path) = local_path_for_request(req.uri(), root_dir) {
@@ -194,22 +201,20 @@ fn try_dir_redirect(
                     new_loc.push_str(query);
                 }
                 info!("redirecting {} to {}", req.uri(), new_loc);
-                future::ready(
-                    Response::builder()
-                        .status(StatusCode::FOUND)
-                        .header(header::LOCATION, new_loc)
-                        .body(Body::empty())
-                        .map(Some)
-                        .map_err(Error::from),
-                )
+                Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header(header::LOCATION, new_loc)
+                    .body(Body::empty())
+                    .map(Some)
+                    .map_err(Error::from)
             } else {
-                future::ok(None)
+                Ok(None)
             }
         } else {
-            future::err(Error::UrlToPath)
+            Err(Error::UrlToPath)
         }
     } else {
-        future::ok(None)
+        Ok(None)
     }
 }
 
@@ -217,23 +222,17 @@ fn try_dir_redirect(
 /// body of the response. If the I/O here fails then an error future will be
 /// returned, and `serve` will convert it into the appropriate HTTP error
 /// response.
-fn respond_with_file(
+async fn respond_with_file(
     path: PathBuf,
-) -> impl Future<Output = Result<Response<Body>>> {
-    async {
-        tokio::fs::read(&path)
-            .await
-            .map_err(Error::from)
-            .and_then(move |buf| {
-                let mime_type = file_path_mime(&path);
-                Response::builder()
-                    .status(StatusCode::OK)
-                    .header(header::CONTENT_LENGTH, buf.len() as u64)
-                    .header(header::CONTENT_TYPE, mime_type.as_ref())
-                    .body(Body::from(buf))
-                    .map_err(Error::from)
-            }).map_err(Error::from)
-    }
+) -> Result<Response<Body>> {
+    let buf = tokio::fs::read(&path).await?;
+    let mime_type = file_path_mime(&path);
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_LENGTH, buf.len() as u64)
+        .header(header::CONTENT_TYPE, mime_type.as_ref())
+        .body(Body::from(buf))?;
+    Ok(resp)
 }
 
 /// Get a MIME type based on the file extension
@@ -311,42 +310,43 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Convert an error to an HTTP error response future, with correct response code.
-fn make_error_response(e: Error) -> impl Future<Output = Result<Response<Body>>> {
-    match e {
-        Error::Io(e) => Either::Left(make_io_error_response(e)),
-        e => Either::Right(make_internal_server_error_response(e)),
-    }
+async fn make_error_response(e: Error) -> Result<Response<Body>> {
+    let resp = match e {
+        Error::Io(e) => make_io_error_response(e).await?,
+        e => make_internal_server_error_response(e).await?,
+    };
+    Ok(resp)
 }
 
 /// Convert an error into a 500 internal server error, and log it.
-fn make_internal_server_error_response(
+async fn make_internal_server_error_response(
     err: Error,
-) -> impl Future<Output = Result<Response<Body>>> {
+) -> Result<Response<Body>> {
     log_error_chain(&err);
-    make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR)
+    let resp = make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR).await?;
+    Ok(resp)
 }
 
 /// Handle the one special io error (file not found) by returning a 404, otherwise
 /// return a 500.
-fn make_io_error_response(error: io::Error) -> impl Future<Output = Result<Response<Body>>> {
-    match error.kind() {
+async fn make_io_error_response(error: io::Error) -> Result<Response<Body>> {
+    let resp = match error.kind() {
         io::ErrorKind::NotFound => {
             debug!("{}", error);
-            Either::Left(make_error_response_from_code(StatusCode::NOT_FOUND))
+            make_error_response_from_code(StatusCode::NOT_FOUND).await?
         }
-        _ => Either::Right(make_internal_server_error_response(Error::Io(error))),
-    }
+        _ => make_internal_server_error_response(Error::Io(error)).await?,
+    };
+    Ok(resp)
 }
 
 /// Make an error response given an HTTP status code.
-fn make_error_response_from_code(
+async fn make_error_response_from_code(
     status: StatusCode,
-) -> impl Future<Output = Result<Response<Body>>> {
-    async move {
-        future::ready({ render_error_html(status) })
-            .await
-            .and_then(move |body| html_str_to_response(body, status))
-    }
+) -> Result<Response<Body>> {
+    let body = render_error_html(status)?;
+    let resp = html_str_to_response(body, status)?;
+    Ok(resp)
 }
 
 /// Make an HTTP response from a HTML string.
