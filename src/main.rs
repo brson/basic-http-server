@@ -73,15 +73,7 @@ fn run() -> Result<()> {
                 async {
                     let resp = serve(config, req).await;
 
-                    if let Err(ref e) = resp {
-                        // Log any errors that result from handling a single HTTP
-                        // request. This _should_ be impossible - we expect our
-                        // service function to map all errors to HTTP error
-                        // responses.
-                        error!("request handler error: {}", e);
-                    }
-
-                    resp
+                    Ok::<_, Error>(resp)
                 }
             });
 
@@ -121,23 +113,33 @@ pub struct Config {
 /// The function that returns a future of an HTTP response for each hyper
 /// Request that is received. Errors are turned into an Error response (404 or
 /// 500), and never propagated upward for hyper to deal with.
-async fn serve(config: Config, req: Request<Body>) -> Result<Response<Body>> {
-    let maybe_resp = serve_file(&req, &config.root_dir).await;
+async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
+    let resp = serve_file(&req, &config.root_dir).await;
 
     // Give developer extensions an opportunity to post-process the request/response pair
-    let maybe_resp = ext::serve(config, req, maybe_resp).await;
+    let resp = ext::serve(config, req, resp).await;
 
-    // Turn any errors into an HTTP error response.
-    //
-    // This `Either` future is a simple way to create a concrete future
-    // (i.e. a non-boxed future) of one of two different `Future` types.
-    // We'll use it a lot.
-    //
-    // Here type `A` is a `FutureResult`, and type `B` is some `impl Future`
-    // returned by `make_error_response`.
-    match maybe_resp {
-        Ok(r) => Ok(r),
-        Err(e) => Ok(make_error_response(e).await?),
+    // Transform internal errors to error responses
+    let resp = transform_error(resp).await;
+
+    resp
+}
+
+/// Turn any errors into an HTTP error response.
+async fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
+    match resp {
+        Ok(r) => r,
+        Err(e) => {
+            let resp = make_error_response(e).await;
+            match resp {
+                Ok(r) => r,
+                Err(e) => {
+                    // Last-ditch error reporting
+                    error!("unexpected internal error: {}", e);
+                    Response::new(Body::from(format!("unexpected internal error: {}", e)))
+                }
+            }
+        }
     }
 }
 
