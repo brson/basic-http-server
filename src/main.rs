@@ -146,9 +146,6 @@ async fn serve(config: Config, req: Request<Body>) -> Result<Response<Body>> {
 
 /// Serve static files from a root directory
 async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<Body>> {
-    let uri = req.uri().clone();
-    let root_dir = root_dir.clone();
-
     // First, try to do a redirect per `try_dir_redirect`. If that doesn't
     // happen, then find the path to the static file we want to serve - which
     // may be `index.html` for directories - and send a response containing that
@@ -159,7 +156,7 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
         return Ok(redir_resp);
     }
 
-    if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
+    if let Some(path) = local_path_with_maybe_index(req.uri(), &root_dir) {
         Ok(respond_with_file(path).await?)
     } else {
         Err(Error::UrlToPath)
