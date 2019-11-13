@@ -1,6 +1,6 @@
 # `basic-http-server`
 
-A simple static HTTP server, for learning and local doc development.
+A simple static HTTP server, for learning and local development.
 
 `basic-http-server` is designed for two purposes:
 
@@ -8,7 +8,7 @@ A simple static HTTP server, for learning and local doc development.
   basic [`tokio`], [`hyper`], and asynchronous Rust programming,
   with `async` / `await`.
 
-- _for local doc development_. It serves static HTML content, and with the `-x`
+- _for local development_. It serves static HTML content, and with the `-x`
    flag, provides convenience features useful for creating developer
    documentation, including markdown rendering and directory listing.
  
