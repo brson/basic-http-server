@@ -3,7 +3,7 @@
 use super::{Config, HtmlCfg};
 use super::{Error, Result};
 use comrak::ComrakOptions;
-use futures::{future, future::Either, Future, Stream, TryFutureExt, StreamExt};
+use futures::{future, future::Either, Future, StreamExt, TryFutureExt};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
@@ -11,60 +11,56 @@ use std::ffi::OsStr;
 use std::fmt::Write;
 use std::io;
 use std::path::{Path, PathBuf};
-use tokio::fs::{self, File};
 use tokio_fs::DirEntry;
 
-pub fn serve(
+pub async fn serve(
     config: Config,
     req: Request<Body>,
     resp: super::Result<Response<Body>>,
-) -> Box<dyn Future<Output = Result<Response<Body>>> + Send + Unpin + 'static> {
+) -> Result<Response<Body>> {
     trace!("checking extensions");
 
     if !config.use_extensions {
-        return Box::new(future::ready(resp));
+        return resp;
     }
 
     let path = super::local_path_for_request(&req.uri(), &config.root_dir);
     if path.is_none() {
-        return Box::new(future::ready(resp));
+        return resp;
     }
     let path = path.unwrap();
     let file_ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
 
     if file_ext == "md" {
         trace!("using markdown extension");
-        return Box::new(md_path_to_html(&path));
+        return md_path_to_html(&path).await;
     }
 
     if let Err(e) = resp {
         match e {
             Error::Io(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
-                    Box::new(maybe_list_dir(&config.root_dir, &path).and_then(
-                        move |list_dir_resp| {
-                            trace!("using directory list extension");
-                            if let Some(f) = list_dir_resp {
-                                Either::Left(future::ok(f))
-                            } else {
-                                Either::Right(future::err(Error::from(e)))
-                            }
-                        },
-                    ))
+                    let list_dir_resp = maybe_list_dir(&config.root_dir, &path).await?;
+                    trace!("using directory list extension");
+                    if let Some(f) = list_dir_resp {
+                        Ok(f)
+                    } else {
+                        Err(Error::from(e))
+                    }
                 } else {
-                    return Box::new(future::err(Error::from(e)));
+                    Err(Error::from(e))
                 }
             }
             _ => {
-                return Box::new(future::err(e));
+                Err(Error::from(e))
             }
         }
     } else {
-        Box::new(future::ready(resp))
+        resp
     }
 }
 
-fn md_path_to_html(path: &Path) -> impl Future<Output = Result<Response<Body>>> {
+async fn md_path_to_html(path: &Path) -> Result<Response<Body>> {
     let mut options = ComrakOptions::default();
     // be like GitHub
     options.ext_autolink = true;
@@ -76,24 +72,21 @@ fn md_path_to_html(path: &Path) -> impl Future<Output = Result<Response<Body>>> 
     options.github_pre_lang = true;
     options.ext_header_ids = Some("user-content-".to_string());
 
-    tokio::fs::read(path)
-        .and_then(|s| String::from_utf8(s).map_err(|_| Error::MarkdownUtf8))
-        .and_then(move |s: String| {
-            let html = comrak::markdown_to_html(&s, &options);
-            let cfg = HtmlCfg {
-                title: String::new(),
-                body: html,
-            };
-            super::render_html(cfg)
-        })
-        .and_then(move |html| {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_LENGTH, html.len() as u64)
-                .header(header::CONTENT_TYPE, mime::TEXT_HTML.as_ref())
-                .body(Body::from(html))
-                .map_err(Error::from)
-        })
+    let buf = tokio::fs::read(path).await?;
+    let s = String::from_utf8(buf).map_err(|_| Error::MarkdownUtf8)?;
+    let html = comrak::markdown_to_html(&s, &options);
+    let cfg = HtmlCfg {
+        title: String::new(),
+        body: html,
+    };
+    let html = super::render_html(cfg)?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_LENGTH, html.len() as u64)
+        .header(header::CONTENT_TYPE, mime::TEXT_HTML.as_ref())
+        .body(Body::from(html))
+        .map_err(Error::from)
 }
 
 fn maybe_list_dir(
@@ -102,7 +95,7 @@ fn maybe_list_dir(
 ) -> impl Future<Output = Result<Option<Response<Body>>>> {
     let root_dir = root_dir.to_owned();
     let path = path.to_owned();
-    fs::metadata(path.clone())
+    tokio::fs::metadata(path.clone())
         .map_err(Error::from)
         .and_then(move |m| {
             if m.is_dir() {
@@ -114,27 +107,35 @@ fn maybe_list_dir(
         .map_err(Error::from)
 }
 
+// FIXME: This doesn't make use of the Option return
 fn list_dir(
     root_dir: &Path,
     path: &Path,
 ) -> impl Future<Output = Result<Option<Response<Body>>>> {
     let root_dir = root_dir.to_owned();
     let up_dir = path.join("..");
-    fs::read_dir(path.to_owned())
-        .map_err(Error::from)
-        .and_then(move |read_dir| {
-            let root_dir = root_dir.to_owned();
-            read_dir
-                .collect()
-                .map_err(Error::from)
-                .and_then(move |dents| {
-                    let paths = dents.iter().map(DirEntry::path);
-                    let paths = Some(up_dir).into_iter().chain(paths);
-                    let paths: Vec<_> = paths.collect();
-                    make_dir_list_body(&root_dir, &paths).map_err(Error::from)
-                })
-                .and_then(|html| super::html_str_to_response(html, StatusCode::OK).map(Some))
-        })
+    let path = path.to_owned();
+    async {
+        let root_dir = root_dir;
+        let path = path;
+        let dirs = tokio::fs::read_dir(path.clone()).await?;
+        let dents: Vec<_> = dirs.collect().await;
+        let dents: Vec<_> = dents.into_iter().filter_map(|dent| {
+            match dent {
+                Ok(dent) => Some(dent),
+                Err(e) => {
+                    warn!("directory entry error: {}", e);
+                    None
+                }
+            }
+        }).collect();
+        let paths = dents.iter().map(DirEntry::path);
+        let paths = Some(up_dir).into_iter().chain(paths);
+        let paths: Vec<_> = paths.collect();
+        let html = make_dir_list_body(&root_dir, &paths)?;
+        let resp = super::html_str_to_response(html, StatusCode::OK).map(Some)?;
+        Ok(resp)
+    }
 }
 
 fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {

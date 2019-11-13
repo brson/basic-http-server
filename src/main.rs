@@ -24,7 +24,7 @@ use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
 // Developer extensions
-//mod ext;
+mod ext;
 
 fn main() {
     // Set up our error handling immediately. The situations in which `run` can
@@ -129,10 +129,9 @@ pub struct Config {
 /// 500), and never propagated upward for hyper to deal with.
 async fn serve(config: Config, req: Request<Body>) -> Result<Response<Body>> {
     let maybe_resp = serve_file(&req, &config.root_dir).await;
-        /*.then(
-            // Give developer extensions an opportunity to post-process the request/response pair
-            move |resp| ext::serve(config, req, resp).map_err(Error::from),
-        )*/
+
+    // Give developer extensions an opportunity to post-process the request/response pair
+    let maybe_resp = ext::serve(config, req, maybe_resp).await;
 
     // Turn any errors into an HTTP error response.
     //
