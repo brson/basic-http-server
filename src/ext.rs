@@ -1,4 +1,7 @@
 //! Developer extensions for basic-http-server
+//!
+//! This code is not as clean and well-documented as main.rs,
+//! but could still be a useful read.
 
 use super::{Config, HtmlCfg};
 use comrak::ComrakOptions;
@@ -13,6 +16,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use tokio_fs::DirEntry;
 
+/// The entry point to extensions. Extensions are given both the request and the
+/// response result from regular file serving, and have the opportunity to
+/// replace the response with their own response.
 pub async fn serve(
     config: Config,
     req: Request<Body>,
@@ -25,10 +31,11 @@ pub async fn serve(
     }
 
     let path = super::local_path_for_request(&req.uri(), &config.root_dir);
-    if path.is_none() {
+    let path = if let Some(path) = path {
+        path
+    } else {
         return resp;
-    }
-    let path = path.unwrap();
+    };
     let file_ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
 
     if file_ext == "md" {
@@ -36,6 +43,7 @@ pub async fn serve(
         return Ok(md_path_to_html(&path).await?);
     }
 
+    // If the requested file was not found, then try doing a directory listing.
     if let Err(e) = resp {
         match e {
             super::Error::Io(e) => {
@@ -58,9 +66,11 @@ pub async fn serve(
     }
 }
 
+/// Load a markdown file, render to HTML, and return the response.
 async fn md_path_to_html(path: &Path) -> Result<Response<Body>> {
+
+    // Render Markdown like GitHub
     let mut options = ComrakOptions::default();
-    // be like GitHub
     options.ext_autolink = true;
     options.ext_header_ids = None;
     options.ext_table = true;
@@ -87,6 +97,7 @@ async fn md_path_to_html(path: &Path) -> Result<Response<Body>> {
         .map_err(Error::from)
 }
 
+/// Try to treat the path as a directory and list the contents as HTML.
 async fn maybe_list_dir(root_dir: &Path, path: &Path) -> Result<Option<Response<Body>>> {
     let meta = tokio::fs::metadata(path).await?;
     if meta.is_dir() {
@@ -96,6 +107,7 @@ async fn maybe_list_dir(root_dir: &Path, path: &Path) -> Result<Option<Response<
     }
 }
 
+/// List the contents of a directory as HTML.
 async fn list_dir(root_dir: &Path, path: &Path) -> Result<Response<Body>> {
     let up_dir = path.join("..");
     let path = path.to_owned();

@@ -21,11 +21,12 @@ use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
-// Developer extensions
+// Developer extensions. These are contained in their own module so that the
+// principle HTTP server behavior is not obscured.
 mod ext;
 
 fn main() {
-    // Set up our error handling immediately
+    // Set up error handling immediately
     if let Err(e) = run() {
         log_error_chain(&e);
     }
@@ -41,7 +42,32 @@ fn log_error_chain(mut e: &dyn StdError) {
     }
 }
 
+/// The configuration object, parsed from command line options.
+#[derive(Clone, StructOpt)]
+#[structopt(about = "A basic HTTP file server")]
+pub struct Config {
+
+    /// The IP:PORT combination.
+    #[structopt(
+        name = "ADDR",
+        short = "a",
+        long = "addr",
+        parse(try_from_str),
+        default_value = "127.0.0.1:4000"
+    )]
+    addr: SocketAddr,
+
+    /// The root directory for serving files.
+    #[structopt(name = "ROOT", parse(from_os_str), default_value = ".")]
+    root_dir: PathBuf,
+
+    /// Enable developer extensions.
+    #[structopt(short = "x")]
+    use_extensions: bool,
+}
+
 fn run() -> Result<()> {
+
     // Initialize logging, and log the "info" level for this crate only, unless
     // the environment contains `RUST_LOG`.
     let env = Env::new().default_filter_or("basic_http_server=info");
@@ -61,11 +87,13 @@ fn run() -> Result<()> {
     info!("root dir: {}", config.root_dir.display());
     info!("extensions: {}", config.use_extensions);
 
-    // Create the service builder that creates a new Hyper service for every
-    // connection
+    // Create the MakeService object that creates a new Hyper service for
+    // every connection.
     let make_service = make_service_fn(|_| {
         let config = config.clone();
 
+        // MakeService returns a future of a Service, so we use an async
+        // black to convert a Result into a Future of Result.
         async {
             let service = service_fn(move |req| {
                 let config = config.clone();
@@ -81,45 +109,30 @@ fn run() -> Result<()> {
         }
     });
 
+    // Create a Hyper Server, binding to an address, and use
+    // our service builder.
     let server = Server::bind(&config.addr).serve(make_service);
 
+    // Create a Tokio runtime and block on Hyper forever.
     let rt = Runtime::new()?;
     rt.block_on(server)?;
 
     Ok(())
 }
 
-/// The configuration object, parsed from command line options
-#[derive(Clone, StructOpt)]
-#[structopt(about = "A basic HTTP file server")]
-pub struct Config {
-    /// Sets the IP:PORT combination
-    #[structopt(
-        name = "ADDR",
-        short = "a",
-        long = "addr",
-        parse(try_from_str),
-        default_value = "127.0.0.1:4000"
-    )]
-    addr: SocketAddr,
-    /// Sets the root dir
-    #[structopt(name = "ROOT", parse(from_os_str), default_value = ".")]
-    root_dir: PathBuf,
-    /// Enable developer extensions
-    #[structopt(short = "x")]
-    use_extensions: bool,
-}
-
-/// The function that returns a future of an HTTP response for each hyper
-/// Request that is received. Errors are turned into an Error response (404 or
-/// 500), and never propagated upward for hyper to deal with.
+/// Create an HTTP Response future for each Request.
+///
+/// Errors are turned into an Error response (404 or 500), and never propagated
+/// upward for hyper to deal with.
 async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
+
+    // Serve the requested file.
     let resp = serve_file(&req, &config.root_dir).await;
 
-    // Give developer extensions an opportunity to post-process the request/response pair
+    // Give developer extensions an opportunity to post-process the request/response pair.
     let resp = ext::serve(config, req, resp).await;
 
-    // Transform internal errors to error responses
+    // Transform internal errors to error responses.
     let resp = transform_error(resp).await;
 
     resp
@@ -134,7 +147,7 @@ async fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
             match resp {
                 Ok(r) => r,
                 Err(e) => {
-                    // Last-ditch error reporting
+                    // Last-ditch error reporting if even making the error response failed.
                     error!("unexpected internal error: {}", e);
                     Response::new(Body::from(format!("unexpected internal error: {}", e)))
                 }
@@ -143,12 +156,12 @@ async fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
     }
 }
 
-/// Serve static files from a root directory
+/// Serve static files from a root directory.
 async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<Body>> {
-    // First, try to do a redirect per `try_dir_redirect`. If that doesn't
-    // happen, then find the path to the static file we want to serve - which
-    // may be `index.html` for directories - and send a response containing that
-    // file.
+
+    // First, try to do a redirect. If that doesn't happen, then find the path
+    // to the static file we want to serve - which may be `index.html` for
+    // directories - and send a response containing that file.
     let maybe_redir_resp = try_dir_redirect(req, &root_dir)?;
 
     if let Some(redir_resp) = maybe_redir_resp {
@@ -176,31 +189,34 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
 ///
 /// This seems to match the behavior of other static web servers.
 fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Response<Body>>> {
-    if !req.uri().path().ends_with("/") {
-        debug!("path does not end with /");
-        if let Some(path) = local_path_for_request(req.uri(), root_dir) {
-            if path.is_dir() {
-                let mut new_loc = req.uri().path().to_string();
-                new_loc.push_str("/");
-                if let Some(query) = req.uri().query() {
-                    new_loc.push_str("?");
-                    new_loc.push_str(query);
-                }
-                info!("redirecting {} to {}", req.uri(), new_loc);
-                Response::builder()
-                    .status(StatusCode::FOUND)
-                    .header(header::LOCATION, new_loc)
-                    .body(Body::empty())
-                    .map(Some)
-                    .map_err(Error::from)
-            } else {
-                Ok(None)
-            }
-        } else {
-            Err(Error::UrlToPath)
+
+    if req.uri().path().ends_with("/") {
+        return Ok(None);
+    }
+
+    debug!("path does not end with /");
+    if let Some(path) = local_path_for_request(req.uri(), root_dir) {
+        if !path.is_dir() {
+            return Ok(None);
         }
+
+        let mut new_loc = req.uri().path().to_string();
+        new_loc.push_str("/");
+        if let Some(query) = req.uri().query() {
+            new_loc.push_str("?");
+            new_loc.push_str(query);
+        }
+
+        info!("redirecting {} to {}", req.uri(), new_loc);
+        Response::builder()
+            .status(StatusCode::FOUND)
+            .header(header::LOCATION, new_loc)
+            .body(Body::empty())
+            .map(Some)
+            .map_err(Error::from)
+
     } else {
-        Ok(None)
+        Err(Error::UrlToPath)
     }
 }
 
@@ -261,7 +277,7 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 
     // This is equivalent to checking for hyper::RequestUri::AbsoluteUri
     if !request_path.starts_with("/") {
-        debug!("found non-absolute path");
+        warn!("found non-absolute path {}", request_path);
         return None;
     }
 
@@ -274,7 +290,7 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     let request_path = if let Ok(p) = decoded.decode_utf8() {
         p
     } else {
-        debug!("unable to percent-decode URL: {}", request_path);
+        error!("unable to percent-decode URL: {}", request_path);
         // FIXME: Error handling
         return None;
     };
@@ -284,7 +300,7 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     if request_path.starts_with('/') {
         path.push(&request_path[1..]);
     } else {
-        debug!("found non-absolute path");
+        warn!("found non-absolute path {}", request_path);
         return None;
     }
 
@@ -340,7 +356,7 @@ fn html_str_to_response(body: String, status: StatusCode) -> Result<Response<Bod
         .map_err(Error::from)
 }
 
-/// A handlebars HTML template
+/// A handlebars HTML template.
 static HTML_TEMPLATE: &str = include_str!("template.html");
 
 /// The data for the handlebars HTML template. Handlebars will use serde to get
@@ -371,7 +387,7 @@ fn render_error_html(status: StatusCode) -> Result<String> {
 /// A custom `Result` typedef
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// The basic-http-server error type
+/// The basic-http-server error type.
 ///
 /// This is divided into two types of errors: "semantic" errors and "blanket"
 /// errors. Semantic errors are custom to the local application semantics and
@@ -456,4 +472,3 @@ impl From<io::Error> for Error {
         Error::Io(e)
     }
 }
-

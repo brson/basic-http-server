@@ -5,12 +5,12 @@ A simple static HTTP server, for learning and local doc development.
 `basic-http-server` is designed for two purposes:
 
 - _as a teaching tool_. It is a simple and well-commented example of
-  basic [`tokio`], [`hyper`], and asynchronous Rust programming.
+  basic [`tokio`], [`hyper`], and asynchronous Rust programming,
+  with `async` / `await`.
 
-- _for local doc development_. It serves static HTML content, and with
-   the `-x` flag, provides a number of convenience features useful
-   for creating developer documentation, including markdown rendering
-   and directory listing.
+- _for local doc development_. It serves static HTML content, and with the `-x`
+   flag, provides convenience features useful for creating developer
+   documentation, including markdown rendering and directory listing.
  
 The entire reference source for setting up a `hyper` HTTP server is contained in
 [`main.rs`]. The [`ext.rs`] file contains developer extensions.
@@ -80,7 +80,7 @@ OPTIONS:
     -a, --addr <ADDR>    Sets the IP:PORT combination (default "127.0.0.1:4000")
 
 ARGS:
-    ROOT    Sets the root dir (default ".")
+    ROOT    Sets the root director (default ".")
 
 ```
 
