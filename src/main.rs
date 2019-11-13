@@ -14,12 +14,10 @@ use http::Uri;
 use hyper::{header, Body, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
 use percent_encoding::percent_decode_str;
-use std::{
-    error::Error as StdError,
-    io,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-};
+use std::io;
+use std::path::{Path, PathBuf};
+use std::error::Error as StdError;
+use std::net::SocketAddr;
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
