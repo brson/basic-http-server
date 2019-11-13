@@ -51,9 +51,7 @@ pub async fn serve(
                     Err(Error::from(e))
                 }
             }
-            _ => {
-                Err(Error::from(e))
-            }
+            _ => Err(Error::from(e)),
         }
     } else {
         resp
@@ -89,10 +87,7 @@ async fn md_path_to_html(path: &Path) -> Result<Response<Body>> {
         .map_err(Error::from)
 }
 
-async fn maybe_list_dir(
-    root_dir: &Path,
-    path: &Path,
-) -> Result<Option<Response<Body>>> {
+async fn maybe_list_dir(root_dir: &Path, path: &Path) -> Result<Option<Response<Body>>> {
     let meta = tokio::fs::metadata(path).await?;
     if meta.is_dir() {
         Ok(Some(list_dir(&root_dir, path).await?))
@@ -101,20 +96,15 @@ async fn maybe_list_dir(
     }
 }
 
-async fn list_dir(
-    root_dir: &Path,
-    path: &Path,
-) -> Result<Response<Body>> {
+async fn list_dir(root_dir: &Path, path: &Path) -> Result<Response<Body>> {
     let up_dir = path.join("..");
     let path = path.to_owned();
     let dents = tokio::fs::read_dir(path).await?;
-    let dents = dents.filter_map(|dent| {
-        match dent {
-            Ok(dent) => future::ready(Some(dent)),
-            Err(e) => {
-                warn!("directory entry error: {}", e);
-                future::ready(None)
-            }
+    let dents = dents.filter_map(|dent| match dent {
+        Ok(dent) => future::ready(Some(dent)),
+        Err(e) => {
+            warn!("directory entry error: {}", e);
+            future::ready(None)
         }
     });
     let paths = dents.map(|dent| DirEntry::path(&dent));
@@ -149,17 +139,14 @@ fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
                 if let Some(full_url) = full_url.to_str() {
                     // %-encode filenames
                     // https://url.spec.whatwg.org/#fragment-percent-encode-set
-                    const FRAGMENT_SET: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
-                    const PATH_SET: &AsciiSet = &FRAGMENT_SET.add(b'#').add(b'?').add(b'{').add(b'}');
+                    const FRAGMENT_SET: &AsciiSet =
+                        &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
+                    const PATH_SET: &AsciiSet =
+                        &FRAGMENT_SET.add(b'#').add(b'?').add(b'{').add(b'}');
                     let full_url = utf8_percent_encode(full_url, &PATH_SET);
 
                     // TODO: Make this a relative URL
-                    writeln!(
-                        buf,
-                        "<div><a href='/{}'>{}</a></div>",
-                        full_url,
-                        file_name
-                    )
+                    writeln!(buf, "<div><a href='/{}'>{}</a></div>", full_url, file_name)
                         .map_err(Error::WriteInDirList)?;
                 } else {
                     warn!("non-unicode url: {}", full_url.to_string_lossy());

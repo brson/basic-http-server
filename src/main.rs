@@ -11,13 +11,13 @@ use env_logger::{Builder, Env};
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use http::Uri;
-use hyper::{header, Body, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
+use hyper::{header, Body, Request, Response, Server};
 use percent_encoding::percent_decode_str;
-use std::io;
-use std::path::{Path, PathBuf};
 use std::error::Error as StdError;
+use std::io;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 
@@ -92,8 +92,7 @@ fn run() -> Result<()> {
         }
     });
 
-    let server = Server::bind(&config.addr)
-        .serve(make_service);
+    let server = Server::bind(&config.addr).serve(make_service);
 
     let rt = Runtime::new()?;
     rt.block_on(server)?;
@@ -146,10 +145,7 @@ async fn serve(config: Config, req: Request<Body>) -> Result<Response<Body>> {
 }
 
 /// Serve static files from a root directory
-async fn serve_file(
-    req: &Request<Body>,
-    root_dir: &PathBuf,
-) -> Result<Response<Body>> {
+async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<Body>> {
     let uri = req.uri().clone();
     let root_dir = root_dir.clone();
 
@@ -183,10 +179,7 @@ async fn serve_file(
 /// the case for URL `docs/`.
 ///
 /// This seems to match the behavior of other static web servers.
-fn try_dir_redirect(
-    req: &Request<Body>,
-    root_dir: &PathBuf,
-) -> Result<Option<Response<Body>>> {
+fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Response<Body>>> {
     if !req.uri().path().ends_with("/") {
         debug!("path does not end with /");
         if let Some(path) = local_path_for_request(req.uri(), root_dir) {
@@ -219,9 +212,7 @@ fn try_dir_redirect(
 /// body of the response. If the I/O here fails then an error future will be
 /// returned, and `serve` will convert it into the appropriate HTTP error
 /// response.
-async fn respond_with_file(
-    path: PathBuf,
-) -> Result<Response<Body>> {
+async fn respond_with_file(path: PathBuf) -> Result<Response<Body>> {
     let buf = tokio::fs::read(&path).await?;
     let mime_type = file_path_mime(&path);
     let resp = Response::builder()
@@ -316,9 +307,7 @@ async fn make_error_response(e: Error) -> Result<Response<Body>> {
 }
 
 /// Convert an error into a 500 internal server error, and log it.
-async fn make_internal_server_error_response(
-    err: Error,
-) -> Result<Response<Body>> {
+async fn make_internal_server_error_response(err: Error) -> Result<Response<Body>> {
     log_error_chain(&err);
     let resp = make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR).await?;
     Ok(resp)
@@ -338,9 +327,7 @@ async fn make_io_error_response(error: io::Error) -> Result<Response<Body>> {
 }
 
 /// Make an error response given an HTTP status code.
-async fn make_error_response_from_code(
-    status: StatusCode,
-) -> Result<Response<Body>> {
+async fn make_error_response_from_code(status: StatusCode) -> Result<Response<Body>> {
     let body = render_error_html(status)?;
     let resp = html_str_to_response(body, status)?;
     Ok(resp)
