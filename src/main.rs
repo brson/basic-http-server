@@ -297,6 +297,7 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 async fn make_error_response(e: Error) -> Result<Response<Body>> {
     let resp = match e {
         Error::Io(e) => make_io_error_response(e).await?,
+        Error::Ext(ext::Error::Io(e)) => make_io_error_response(e).await?,
         e => make_internal_server_error_response(e).await?,
     };
     Ok(resp)
@@ -391,33 +392,29 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Display)]
 pub enum Error {
     // blanket "pass-through" error types
+
+    #[display(fmt = "Extension error")]
+    Ext(ext::Error),
+
     #[display(fmt = "HTTP error")]
     Http(http::Error),
-
-    #[display(fmt = "I/O error")]
-    Io(io::Error),
 
     #[display(fmt = "Hyper error")]
     Hyper(hyper::Error),
 
+    #[display(fmt = "I/O error")]
+    Io(io::Error),
+
     // custom "semantic" error types
+
     #[display(fmt = "failed to parse IP address")]
     AddrParse(std::net::AddrParseError),
-
-    #[display(fmt = "markdown is not UTF-8")]
-    MarkdownUtf8,
-
-    #[display(fmt = "failed to strip prefix in directory listing")]
-    StripPrefixInDirList(std::path::StripPrefixError),
 
     #[display(fmt = "failed to render template")]
     TemplateRender(handlebars::TemplateRenderError),
 
     #[display(fmt = "failed to convert URL to local file path")]
     UrlToPath,
-
-    #[display(fmt = "formatting error while creating directory listing")]
-    WriteInDirList(std::fmt::Error),
 }
 
 impl StdError for Error {
@@ -425,22 +422,20 @@ impl StdError for Error {
         use Error::*;
 
         match self {
-            Http(e) => Some(e),
+            Ext(e) => Some(e),
             Io(e) => Some(e),
+            Http(e) => Some(e),
             Hyper(e) => Some(e),
             AddrParse(e) => Some(e),
-            MarkdownUtf8 => None,
-            StripPrefixInDirList(e) => Some(e),
             TemplateRender(e) => Some(e),
             UrlToPath => None,
-            WriteInDirList(e) => Some(e),
         }
     }
 }
 
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Error {
-        Error::Io(e)
+impl From<ext::Error> for Error {
+    fn from(e: ext::Error) -> Error {
+        Error::Ext(e)
     }
 }
 
@@ -455,3 +450,10 @@ impl From<hyper::Error> for Error {
         Error::Hyper(e)
     }
 }
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Error {
+        Error::Io(e)
+    }
+}
+

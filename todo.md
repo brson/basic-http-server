@@ -12,7 +12,7 @@
 - fix default mime type
 - add more mime types, maybe use tree_magic or mime_guess
 - deal with more http error codes
-- split Error into ext::Error
 - rst support
 - make plain path links, [index.html], work
 - convert to async/await, tokio 0.2
+- make_error_response should find io errors to any recursive depth

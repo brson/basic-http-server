@@ -1,12 +1,12 @@
 //! Developer extensions for basic-http-server
 
 use super::{Config, HtmlCfg};
-use super::{Error, Result};
 use comrak::ComrakOptions;
 use futures::{future, StreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use std::error::Error as StdError;
 use std::ffi::OsStr;
 use std::fmt::Write;
 use std::io;
@@ -17,7 +17,7 @@ pub async fn serve(
     config: Config,
     req: Request<Body>,
     resp: super::Result<Response<Body>>,
-) -> Result<Response<Body>> {
+) -> super::Result<Response<Body>> {
     trace!("checking extensions");
 
     if !config.use_extensions {
@@ -33,25 +33,25 @@ pub async fn serve(
 
     if file_ext == "md" {
         trace!("using markdown extension");
-        return md_path_to_html(&path).await;
+        return Ok(md_path_to_html(&path).await?);
     }
 
     if let Err(e) = resp {
         match e {
-            Error::Io(e) => {
+            super::Error::Io(e) => {
                 if e.kind() == io::ErrorKind::NotFound {
                     let list_dir_resp = maybe_list_dir(&config.root_dir, &path).await?;
                     trace!("using directory list extension");
                     if let Some(f) = list_dir_resp {
                         Ok(f)
                     } else {
-                        Err(Error::from(e))
+                        Err(super::Error::from(e))
                     }
                 } else {
-                    Err(Error::from(e))
+                    Err(super::Error::from(e))
                 }
             }
-            _ => Err(Error::from(e)),
+            _ => Err(e),
         }
     } else {
         resp
@@ -165,5 +165,66 @@ fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
         title: String::new(),
         body: buf,
     };
-    super::render_html(cfg)
+
+    Ok(super::render_html(cfg)?)
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Display)]
+pub enum Error {
+    // blanket "pass-through" error types
+
+    #[display(fmt = "engine error")]
+    Engine(Box<super::Error>),
+
+    #[display(fmt = "HTTP error")]
+    Http(http::Error),
+
+    #[display(fmt = "I/O error")]
+    Io(io::Error),
+
+    // custom "semantic" error types
+
+    #[display(fmt = "markdown is not UTF-8")]
+    MarkdownUtf8,
+
+    #[display(fmt = "failed to strip prefix in directory listing")]
+    StripPrefixInDirList(std::path::StripPrefixError),
+
+    #[display(fmt = "formatting error while creating directory listing")]
+    WriteInDirList(std::fmt::Error),
+}
+
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        use Error::*;
+
+        match self {
+            Engine(e) => Some(e),
+            Io(e) => Some(e),
+            Http(e) => Some(e),
+            MarkdownUtf8 => None,
+            StripPrefixInDirList(e) => Some(e),
+            WriteInDirList(e) => Some(e),
+        }
+    }
+}
+
+impl From<super::Error> for Error {
+    fn from(e: super::Error) -> Error {
+        Error::Engine(Box::new(e))
+    }
+}
+
+impl From<http::Error> for Error {
+    fn from(e: http::Error) -> Error {
+        Error::Http(e)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Error {
+        Error::Io(e)
+    }
 }
