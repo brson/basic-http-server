@@ -95,17 +95,16 @@ async fn maybe_list_dir(
 ) -> Result<Option<Response<Body>>> {
     let meta = tokio::fs::metadata(path).await?;
     if meta.is_dir() {
-        list_dir(&root_dir, path).await
+        Ok(Some(list_dir(&root_dir, path).await?))
     } else {
         Ok(None)
     }
 }
 
-// FIXME: This doesn't make use of the Option return
 async fn list_dir(
     root_dir: &Path,
     path: &Path,
-) -> Result<Option<Response<Body>>> {
+) -> Result<Response<Body>> {
     let up_dir = path.join("..");
     let path = path.to_owned();
     let dents = tokio::fs::read_dir(path).await?;
@@ -123,7 +122,7 @@ async fn list_dir(
     let paths = Some(up_dir).into_iter().chain(paths);
     let paths: Vec<_> = paths.collect();
     let html = make_dir_list_body(&root_dir, &paths)?;
-    let resp = super::html_str_to_response(html, StatusCode::OK).map(Some)?;
+    let resp = super::html_str_to_response(html, StatusCode::OK)?;
     Ok(resp)
 }
 
