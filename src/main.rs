@@ -25,10 +25,7 @@ use tokio::runtime::Runtime;
 mod ext;
 
 fn main() {
-    // Set up our error handling immediately. The situations in which `run` can
-    // actually return errors are few though - any errors propagated up to the
-    // hyper request handler silently cause the connection to be closed, and our
-    // HTTP service additionally converts any errors to HTTP error responses.
+    // Set up our error handling immediately
     if let Err(e) = run() {
         log_error_chain(&e);
     }
