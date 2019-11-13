@@ -3,7 +3,7 @@
 use super::{Config, HtmlCfg};
 use super::{Error, Result};
 use comrak::ComrakOptions;
-use futures::StreamExt;
+use futures::{future, StreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
@@ -109,17 +109,17 @@ async fn list_dir(
     let up_dir = path.join("..");
     let path = path.to_owned();
     let dents = tokio::fs::read_dir(path).await?;
-    let dents: Vec<_> = dents.collect().await;
-    let dents: Vec<_> = dents.into_iter().filter_map(|dent| {
+    let dents = dents.filter_map(|dent| {
         match dent {
-            Ok(dent) => Some(dent),
+            Ok(dent) => future::ready(Some(dent)),
             Err(e) => {
                 warn!("directory entry error: {}", e);
-                None
+                future::ready(None)
             }
         }
-    }).collect();
-    let paths = dents.iter().map(DirEntry::path);
+    });
+    let paths = dents.map(|dent| DirEntry::path(&dent));
+    let paths: Vec<_> = paths.collect().await;
     let paths = Some(up_dir).into_iter().chain(paths);
     let paths: Vec<_> = paths.collect();
     let html = make_dir_list_body(&root_dir, &paths)?;
