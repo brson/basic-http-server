@@ -3,7 +3,7 @@
 use super::{Config, HtmlCfg};
 use super::{Error, Result};
 use comrak::ComrakOptions;
-use futures::{future, future::Either, Future, StreamExt, TryFutureExt};
+use futures::StreamExt;
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
@@ -89,53 +89,42 @@ async fn md_path_to_html(path: &Path) -> Result<Response<Body>> {
         .map_err(Error::from)
 }
 
-fn maybe_list_dir(
+async fn maybe_list_dir(
     root_dir: &Path,
     path: &Path,
-) -> impl Future<Output = Result<Option<Response<Body>>>> {
-    let root_dir = root_dir.to_owned();
-    let path = path.to_owned();
-    tokio::fs::metadata(path.clone())
-        .map_err(Error::from)
-        .and_then(move |m| {
-            if m.is_dir() {
-                Either::Left(list_dir(&root_dir, &path))
-            } else {
-                Either::Right(future::ok(None))
-            }
-        })
-        .map_err(Error::from)
+) -> Result<Option<Response<Body>>> {
+    let meta = tokio::fs::metadata(path).await?;
+    if meta.is_dir() {
+        list_dir(&root_dir, path).await
+    } else {
+        Ok(None)
+    }
 }
 
 // FIXME: This doesn't make use of the Option return
-fn list_dir(
+async fn list_dir(
     root_dir: &Path,
     path: &Path,
-) -> impl Future<Output = Result<Option<Response<Body>>>> {
-    let root_dir = root_dir.to_owned();
+) -> Result<Option<Response<Body>>> {
     let up_dir = path.join("..");
     let path = path.to_owned();
-    async {
-        let root_dir = root_dir;
-        let path = path;
-        let dirs = tokio::fs::read_dir(path.clone()).await?;
-        let dents: Vec<_> = dirs.collect().await;
-        let dents: Vec<_> = dents.into_iter().filter_map(|dent| {
-            match dent {
-                Ok(dent) => Some(dent),
-                Err(e) => {
-                    warn!("directory entry error: {}", e);
-                    None
-                }
+    let dents = tokio::fs::read_dir(path).await?;
+    let dents: Vec<_> = dents.collect().await;
+    let dents: Vec<_> = dents.into_iter().filter_map(|dent| {
+        match dent {
+            Ok(dent) => Some(dent),
+            Err(e) => {
+                warn!("directory entry error: {}", e);
+                None
             }
-        }).collect();
-        let paths = dents.iter().map(DirEntry::path);
-        let paths = Some(up_dir).into_iter().chain(paths);
-        let paths: Vec<_> = paths.collect();
-        let html = make_dir_list_body(&root_dir, &paths)?;
-        let resp = super::html_str_to_response(html, StatusCode::OK).map(Some)?;
-        Ok(resp)
-    }
+        }
+    }).collect();
+    let paths = dents.iter().map(DirEntry::path);
+    let paths = Some(up_dir).into_iter().chain(paths);
+    let paths: Vec<_> = paths.collect();
+    let html = make_dir_list_body(&root_dir, &paths)?;
+    let resp = super::html_str_to_response(html, StatusCode::OK).map(Some)?;
+    Ok(resp)
 }
 
 fn make_dir_list_body(root_dir: &Path, paths: &[PathBuf]) -> Result<String> {
