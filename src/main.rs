@@ -8,6 +8,8 @@ extern crate log;
 extern crate serde_derive;
 
 use env_logger::{Builder, Env};
+use futures::FutureExt;
+use futures::future;
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use http::Uri;
@@ -87,26 +89,22 @@ fn run() -> Result<()> {
     info!("root dir: {}", config.root_dir.display());
     info!("extensions: {}", config.use_extensions);
 
-    // Create the MakeService object that creates a new Hyper service for
-    // every connection.
+    // Create the MakeService object that creates a new Hyper service for every
+    // connection. Both these closures need to return a Future of Result, and we
+    // use two different mechanisms to achieve that.
     let make_service = make_service_fn(|_| {
         let config = config.clone();
 
-        // MakeService returns a future of a Service, so we use an async
-        // black to convert a Result into a Future of Result.
-        async {
-            let service = service_fn(move |req| {
-                let config = config.clone();
+        let service = service_fn(move |req| {
+            let config = config.clone();
 
-                async {
-                    let resp = serve(config, req).await;
+            // Handle the request, returning a Future of Response,
+            // and map it to a Future of Result of Response.
+            serve(config, req).map(Ok::<_, Error>)
+        });
 
-                    Ok::<_, Error>(resp)
-                }
-            });
-
-            Ok::<_, Error>(service)
-        }
+        // Convert the concrete (non-future) service function to a Future of Result.
+        future::ok::<_, Error>(service)
     });
 
     // Create a Hyper Server, binding to an address, and use
