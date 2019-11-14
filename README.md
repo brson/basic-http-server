@@ -80,7 +80,7 @@ OPTIONS:
     -a, --addr <ADDR>    Sets the IP:PORT combination (default "127.0.0.1:4000")
 
 ARGS:
-    ROOT    Sets the root director (default ".")
+    ROOT    Sets the root directory (default ".")
 
 ```
 
