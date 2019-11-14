@@ -173,6 +173,8 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
     }
 }
 
+/// Try to do a 302 redirect for directories.
+///
 /// If we get a URL without trailing "/" that can be mapped to a directory, then
 /// return a 302 redirect to the path with the trailing "/".
 ///
