@@ -3,9 +3,11 @@
 #[macro_use]
 extern crate derive_more;
 
+use bytes::BytesMut;
 use env_logger::{Builder, Env};
-use futures::FutureExt;
 use futures::future;
+use futures::stream::StreamExt;
+use futures::FutureExt;
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use http::Uri;
@@ -19,11 +21,9 @@ use std::io;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
-use tokio::runtime::Runtime;
-use tokio::fs::File;
 use tokio::codec::{BytesCodec, FramedRead};
-use bytes::BytesMut;
-use futures::stream::StreamExt;
+use tokio::fs::File;
+use tokio::runtime::Runtime;
 
 // Developer extensions. These are contained in their own module so that the
 // principle HTTP server behavior is not obscured.
@@ -50,7 +50,6 @@ fn log_error_chain(mut e: &dyn StdError) {
 #[derive(Clone, StructOpt)]
 #[structopt(about = "A basic HTTP file server")]
 pub struct Config {
-
     /// The IP:PORT combination.
     #[structopt(
         name = "ADDR",
@@ -71,7 +70,6 @@ pub struct Config {
 }
 
 fn run() -> Result<()> {
-
     // Initialize logging, and log the "info" level for this crate only, unless
     // the environment contains `RUST_LOG`.
     let env = Env::new().default_filter_or("basic_http_server=info");
@@ -125,7 +123,6 @@ fn run() -> Result<()> {
 /// Errors are turned into an Error response (404 or 500), and never propagated
 /// upward for hyper to deal with.
 async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
-
     // Serve the requested file.
     let resp = serve_file(&req, &config.root_dir).await;
 
@@ -158,7 +155,6 @@ async fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
 
 /// Serve static files from a root directory.
 async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<Body>> {
-
     // First, try to do a redirect. If that doesn't happen, then find the path
     // to the static file we want to serve - which may be `index.html` for
     // directories - and send a response containing that file.
@@ -191,7 +187,6 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
 ///
 /// This seems to match the behavior of other static web servers.
 fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Response<Body>>> {
-
     if req.uri().path().ends_with("/") {
         return Ok(None);
     }
@@ -216,7 +211,6 @@ fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Re
             .body(Body::empty())
             .map(Some)
             .map_err(Error::from)
-
     } else {
         Err(Error::UrlToPath)
     }
@@ -228,8 +222,6 @@ fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Re
 /// If the I/O here fails then an error future will be returned, and `serve`
 /// will convert it into the appropriate HTTP error response.
 async fn respond_with_file(path: PathBuf) -> Result<Response<Body>> {
-
-    
     let mime_type = file_path_mime(&path);
 
     let file = File::open(path).await?;
@@ -431,7 +423,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Display)]
 pub enum Error {
     // blanket "pass-through" error types
-
     #[display(fmt = "Extension error")]
     Ext(ext::Error),
 
@@ -445,7 +436,6 @@ pub enum Error {
     Io(io::Error),
 
     // custom "semantic" error types
-
     #[display(fmt = "failed to parse IP address")]
     AddrParse(std::net::AddrParseError),
 

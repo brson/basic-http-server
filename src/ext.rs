@@ -69,7 +69,6 @@ pub async fn serve(
 
 /// Load a markdown file, render to HTML, and return the response.
 async fn md_path_to_html(path: &Path) -> Result<Response<Body>> {
-
     // Render Markdown like GitHub
     let mut options = ComrakOptions::default();
     options.ext_autolink = true;
@@ -188,7 +187,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Display)]
 pub enum Error {
     // blanket "pass-through" error types
-
     #[display(fmt = "engine error")]
     Engine(Box<super::Error>),
 
@@ -199,7 +197,6 @@ pub enum Error {
     Io(io::Error),
 
     // custom "semantic" error types
-
     #[display(fmt = "markdown is not UTF-8")]
     MarkdownUtf8,
 
