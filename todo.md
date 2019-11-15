@@ -3,7 +3,6 @@
 - rst support
 - deal with more http error codes
 - add more mime types, maybe use tree_magic or mime_guess
-- fix default mime type
 - add a way to explicitly request an index listing
 - display README.md for dirs by default
 - strip -- comments from top of md files
