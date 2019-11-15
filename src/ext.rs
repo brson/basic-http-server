@@ -120,7 +120,8 @@ async fn list_dir(root_dir: &Path, path: &Path) -> Result<Response<Body>> {
         }
     });
     let paths = dents.map(|dent| DirEntry::path(&dent));
-    let paths: Vec<_> = paths.collect().await;
+    let mut paths: Vec<_> = paths.collect().await;
+    paths.sort();
     let paths = Some(up_dir).into_iter().chain(paths);
     let paths: Vec<_> = paths.collect();
     let html = make_dir_list_body(&root_dir, &paths)?;
