@@ -8,6 +8,7 @@ use comrak::ComrakOptions;
 use futures::{future, StreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::{header, Body};
+use log::{trace, warn};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use std::error::Error as StdError;
 use std::ffi::OsStr;

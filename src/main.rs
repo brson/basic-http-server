@@ -2,10 +2,6 @@
 
 #[macro_use]
 extern crate derive_more;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate serde_derive;
 
 use env_logger::{Builder, Env};
 use futures::FutureExt;
@@ -15,7 +11,9 @@ use http::status::StatusCode;
 use http::Uri;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
+use log::{debug, error, info, trace, warn};
 use percent_encoding::percent_decode_str;
+use serde::Serialize;
 use std::error::Error as StdError;
 use std::io;
 use std::net::SocketAddr;
