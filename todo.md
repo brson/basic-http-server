@@ -14,6 +14,8 @@
 - prevent responding files outside of root_dir
 - catch and report panic
 - error on binding bound socket / port
+- teach ext to serve various types as "text/plain"
+- teach ext to do syntax highlighting
 - production-readiness
   - benchmark with ab / h2load
   - consider behavior under resource exhastion
