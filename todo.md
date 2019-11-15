@@ -15,6 +15,7 @@
 - prevent responding files outside of root_dir
 - catch and report panic
 - error on binding bound socket / port
+- sort directory entries
 - production-readiness
   - stream files instead of loading into memory
   - benchmark with ab / h2load
