@@ -1,26 +1,21 @@
 //! A simple HTTP server, for learning and local doc development.
 
-#[macro_use]
-extern crate derive_more;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate serde_derive;
-
 use env_logger::{Builder, Env};
-use futures::FutureExt;
 use futures::future;
+use futures::FutureExt;
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use http::Uri;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
+use log::{debug, error, info, trace, warn};
 use percent_encoding::percent_decode_str;
-use std::error::Error as StdError;
+use serde::Serialize;
 use std::io;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
+use thiserror::Error;
 use tokio::runtime::Runtime;
 
 // Developer extensions. These are contained in their own module so that the
@@ -36,7 +31,7 @@ fn main() {
 
 /// Basic error reporting, including the "cause chain". This is used both by the
 /// top-level error reporting and to report internal server errors.
-fn log_error_chain(mut e: &dyn StdError) {
+fn log_error_chain(mut e: &dyn std::error::Error) {
     error!("error: {}", e);
     while let Some(source) = e.source() {
         error!("caused by: {}", source);
@@ -48,7 +43,6 @@ fn log_error_chain(mut e: &dyn StdError) {
 #[derive(Clone, StructOpt)]
 #[structopt(about = "A basic HTTP file server")]
 pub struct Config {
-
     /// The IP:PORT combination.
     #[structopt(
         name = "ADDR",
@@ -69,13 +63,12 @@ pub struct Config {
 }
 
 fn run() -> Result<()> {
-
     // Initialize logging, and log the "info" level for this crate only, unless
     // the environment contains `RUST_LOG`.
     let env = Env::new().default_filter_or("basic_http_server=info");
     Builder::from_env(env)
-        .default_format_module_path(false)
-        .default_format_timestamp(false)
+        .format_module_path(false)
+        .format_timestamp(None)
         .init();
 
     // Create the configuration from the command line arguments. It
@@ -123,7 +116,6 @@ fn run() -> Result<()> {
 /// Errors are turned into an Error response (404 or 500), and never propagated
 /// upward for hyper to deal with.
 async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
-
     // Serve the requested file.
     let resp = serve_file(&req, &config.root_dir).await;
 
@@ -156,7 +148,6 @@ async fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
 
 /// Serve static files from a root directory.
 async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<Body>> {
-
     // First, try to do a redirect. If that doesn't happen, then find the path
     // to the static file we want to serve - which may be `index.html` for
     // directories - and send a response containing that file.
@@ -189,7 +180,6 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
 ///
 /// This seems to match the behavior of other static web servers.
 fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Response<Body>>> {
-
     if req.uri().path().ends_with("/") {
         return Ok(None);
     }
@@ -214,7 +204,6 @@ fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Re
             .body(Body::empty())
             .map(Some)
             .map_err(Error::from)
-
     } else {
         Err(Error::UrlToPath)
     }
@@ -312,8 +301,10 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 /// Convert an error to an HTTP error response future, with correct response code.
 async fn make_error_response(e: Error) -> Result<Response<Body>> {
     let resp = match e {
-        Error::Io(e) => make_io_error_response(e).await?,
-        Error::Ext(ext::Error::Io(e)) => make_io_error_response(e).await?,
+        Error::Io { source: e } => make_io_error_response(e).await?,
+        Error::Ext {
+            source: ext::Error::Io { source: e },
+        } => make_io_error_response(e).await?,
         e => make_internal_server_error_response(e).await?,
     };
     Ok(resp)
@@ -334,7 +325,7 @@ async fn make_io_error_response(error: io::Error) -> Result<Response<Body>> {
             debug!("{}", error);
             make_error_response_from_code(StatusCode::NOT_FOUND).await?
         }
-        _ => make_internal_server_error_response(Error::Io(error)).await?,
+        _ => make_internal_server_error_response(error.into()).await?,
     };
     Ok(resp)
 }
@@ -372,7 +363,7 @@ fn render_html(cfg: HtmlCfg) -> Result<String> {
     let reg = Handlebars::new();
     let rendered = reg
         .render_template(HTML_TEMPLATE, &cfg)
-        .map_err(Error::TemplateRender)?;
+        .map_err(|source| Error::TemplateRender { source })?;
     Ok(rendered)
 }
 
@@ -403,72 +394,44 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// The criteria of when to use which type of error variant, and their pros and
 /// cons, aren't obvious.
 ///
-/// These errors use `derive(Display)` from the `derive-more` crate to reduce
+/// These errors use `derive(Error)` from the `thiserror` crate to reduce
 /// boilerplate.
-#[derive(Debug, Display)]
+#[derive(Debug, Error)]
 pub enum Error {
     // blanket "pass-through" error types
+    #[error("Extension error")]
+    Ext {
+        #[from]
+        source: ext::Error,
+    },
 
-    #[display(fmt = "Extension error")]
-    Ext(ext::Error),
+    #[error("HTTP error")]
+    Http {
+        #[from]
+        source: http::Error,
+    },
 
-    #[display(fmt = "HTTP error")]
-    Http(http::Error),
+    #[error("Hyper error")]
+    Hyper {
+        #[from]
+        source: hyper::Error,
+    },
 
-    #[display(fmt = "Hyper error")]
-    Hyper(hyper::Error),
-
-    #[display(fmt = "I/O error")]
-    Io(io::Error),
+    #[error("I/O error")]
+    Io {
+        #[from]
+        source: io::Error,
+    },
 
     // custom "semantic" error types
+    #[error("failed to parse IP address")]
+    AddrParse { source: std::net::AddrParseError },
 
-    #[display(fmt = "failed to parse IP address")]
-    AddrParse(std::net::AddrParseError),
+    #[error("failed to render template")]
+    TemplateRender {
+        source: handlebars::TemplateRenderError,
+    },
 
-    #[display(fmt = "failed to render template")]
-    TemplateRender(handlebars::TemplateRenderError),
-
-    #[display(fmt = "failed to convert URL to local file path")]
+    #[error("failed to convert URL to local file path")]
     UrlToPath,
-}
-
-impl StdError for Error {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        use Error::*;
-
-        match self {
-            Ext(e) => Some(e),
-            Io(e) => Some(e),
-            Http(e) => Some(e),
-            Hyper(e) => Some(e),
-            AddrParse(e) => Some(e),
-            TemplateRender(e) => Some(e),
-            UrlToPath => None,
-        }
-    }
-}
-
-impl From<ext::Error> for Error {
-    fn from(e: ext::Error) -> Error {
-        Error::Ext(e)
-    }
-}
-
-impl From<http::Error> for Error {
-    fn from(e: http::Error) -> Error {
-        Error::Http(e)
-    }
-}
-
-impl From<hyper::Error> for Error {
-    fn from(e: hyper::Error) -> Error {
-        Error::Hyper(e)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Error {
-        Error::Io(e)
-    }
 }
