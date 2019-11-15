@@ -1,21 +1,8 @@
-- make_error_response should find io errors to any recursive depth
-- make plain path links, [index.html], work
-- rst support
-- deal with more http error codes
-- add more mime types, maybe use tree_magic or mime_guess
-- add a way to explicitly request an index listing
-- display README.md for dirs by default
-- strip -- comments from top of md files
-- with -x, check missing .html files for .md instead
-- make errors semantic
-- make errors carry URLs
-- async is_dir
-- add context to errors
-- prevent responding files outside of root_dir
-- catch and report panic
-- error on binding bound socket / port
-- teach ext to serve various types as "text/plain"
-- teach ext to do syntax highlighting
+- mime types
+  - don't use text/plain mime type by default
+  - add more mime types, maybe use tree_magic or mime_guess
+  - teach ext to serve various types as "text/plain"
+  - teach ext to do syntax highlighting
 - production-readiness
   - benchmark with ab / h2load
   - consider behavior under resource exhastion
@@ -28,3 +15,18 @@
   - test conformance with h2spec / (what about http 1?)
   - handle more request / response headers
   - use more status codes
+- make_error_response should find io errors to any recursive depth
+- make plain path links, [index.html], work
+- rst support
+- add a way to explicitly request an index listing
+- markdown
+  - display README.md for dirs by default
+  - strip -- comments from top of md files
+  - with -x, check missing .html files for .md instead
+- make errors semantic
+- make errors carry URLs
+- async is_dir
+- add context to errors
+- prevent responding files outside of root_dir
+- catch and report panic
+- error on binding bound socket / port
