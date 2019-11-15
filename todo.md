@@ -16,7 +16,6 @@
 - catch and report panic
 - error on binding bound socket / port
 - production-readiness
-  - stream files instead of loading into memory
   - benchmark with ab / h2load
   - consider behavior under resource exhastion
   - what kind of resource limits need to be considered?

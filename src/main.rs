@@ -20,6 +20,10 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
+use tokio::fs::File;
+use tokio::codec::{BytesCodec, FramedRead};
+use bytes::BytesMut;
+use futures::stream::StreamExt;
 
 // Developer extensions. These are contained in their own module so that the
 // principle HTTP server behavior is not obscured.
@@ -218,18 +222,39 @@ fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Re
     }
 }
 
-/// Read the file completely and construct a 200 response with that file as the
-/// body of the response. If the I/O here fails then an error future will be
-/// returned, and `serve` will convert it into the appropriate HTTP error
-/// response.
+/// Construct a 200 response with that file as the body, streaming it to avoid
+/// loading it fully into memory.
+///
+/// If the I/O here fails then an error future will be returned, and `serve`
+/// will convert it into the appropriate HTTP error response.
 async fn respond_with_file(path: PathBuf) -> Result<Response<Body>> {
-    let buf = tokio::fs::read(&path).await?;
+
+    
     let mime_type = file_path_mime(&path);
+
+    let file = File::open(path).await?;
+
+    let meta = file.metadata().await?;
+    let len = meta.len();
+
+    // Here's the streaming code. How to do this isn't documented in the
+    // Tokio/Hyper API docs. Codecs are how Tokio creates Streams; a FramedRead
+    // turns an AsyncRead plus a Decoder into a Stream; and BytesCodec is a
+    // Decoder. FramedRead though creates a Stream<Result<BytesMut>> and Hyper's
+    // Body wants a Stream<Result<Bytes>>, and BytesMut::freeze will give us a
+    // Bytes.
+
+    let codec = BytesCodec::new();
+    let stream = FramedRead::new(file, codec);
+    let stream = stream.map(|b| b.map(BytesMut::freeze));
+    let body = Body::wrap_stream(stream);
+
     let resp = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_LENGTH, buf.len() as u64)
+        .header(header::CONTENT_LENGTH, len as u64)
         .header(header::CONTENT_TYPE, mime_type.as_ref())
-        .body(Body::from(buf))?;
+        .body(body)?;
+
     Ok(resp)
 }
 
