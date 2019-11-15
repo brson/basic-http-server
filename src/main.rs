@@ -267,7 +267,7 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
             .unwrap(),
         Some("txt") => mime::TEXT_PLAIN,
         Some("wasm") => "application/wasm".parse::<mime::Mime>().unwrap(),
-        _ => mime::APPLICATION_OCTET_STREAM,
+        _ => mime::TEXT_PLAIN,
     };
     mime_type
 }
