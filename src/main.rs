@@ -1,5 +1,7 @@
 //! A simple HTTP server, for learning and local doc development.
 
+#![allow(unused)]
+
 #[macro_use]
 extern crate derive_more;
 #[macro_use]
@@ -9,6 +11,7 @@ extern crate serde_derive;
 
 use env_logger::{Builder, Env};
 use futures::{future, future::Either, Future};
+use futures::{FutureExt, TryFutureExt, StreamExt};
 use handlebars::Handlebars;
 use http::status::StatusCode;
 use http::Uri;
@@ -24,7 +27,7 @@ use structopt::StructOpt;
 use tokio::fs::File;
 
 // Developer extensions
-mod ext;
+//mod ext;
 
 fn main() {
     // Set up our error handling immediately. The situations in which `run` can
@@ -47,6 +50,7 @@ fn log_error_chain(mut e: &dyn StdError) {
 }
 
 fn run() -> Result<()> {
+    /*
     // Initialize logging, and log the "info" level for this crate only, unless
     // the environment contains `RUST_LOG`.
     let env = Env::new().default_filter_or("basic_http_server=info");
@@ -92,6 +96,8 @@ fn run() -> Result<()> {
     tokio::run(server);
 
     Ok(())
+     */
+    panic!()
 }
 
 /// The configuration object, parsed from command line options
@@ -118,13 +124,13 @@ pub struct Config {
 /// The function that returns a future of an HTTP response for each hyper
 /// Request that is received. Errors are turned into an Error response (404 or
 /// 500), and never propagated upward for hyper to deal with.
-fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Body>, Error = Error> {
+fn serve(config: &Config, req: Request<Body>) -> impl Future<Output = Result<Response<Body>>> {
     let config = config.clone();
     serve_file(&req, &config.root_dir)
-        .then(
+        /*.then(
             // Give developer extensions an opportunity to post-process the request/response pair
             move |resp| ext::serve(config, req, resp).map_err(Error::from),
-        )
+        )*/
         .then(|maybe_resp| {
             // Turn any errors into an HTTP error response.
             //
@@ -135,8 +141,8 @@ fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Bod
             // Here type `A` is a `FutureResult`, and type `B` is some `impl Future`
             // returned by `make_error_response`.
             match maybe_resp {
-                Ok(r) => Either::A(future::ok(r)),
-                Err(e) => Either::B(make_error_response(e)),
+                Ok(r) => Either::Left(future::ok(r)),
+                Err(e) => Either::Left(make_error_response(e)),
             }
         })
 }
@@ -145,7 +151,7 @@ fn serve(config: &Config, req: Request<Body>) -> impl Future<Item = Response<Bod
 fn serve_file(
     req: &Request<Body>,
     root_dir: &PathBuf,
-) -> impl Future<Item = Response<Body>, Error = Error> {
+) -> impl Future<Output = Result<Response<Body>>> {
     let uri = req.uri().clone();
     let root_dir = root_dir.clone();
 
@@ -155,17 +161,17 @@ fn serve_file(
     // file.
     try_dir_redirect(req, &root_dir).and_then(move |maybe_redir_resp| {
         if let Some(redir_resp) = maybe_redir_resp {
-            return Either::A(future::ok(redir_resp));
+            return Either::Left(future::ok(redir_resp));
         }
 
         if let Some(path) = local_path_with_maybe_index(&uri, &root_dir) {
-            Either::B(
+            Either::Left(
                 File::open(path.clone())
                     .map_err(Error::from)
                     .and_then(move |file| respond_with_file(file, path)),
             )
         } else {
-            Either::A(future::err(Error::UrlToPath))
+            Either::Left(future::err(Error::UrlToPath))
         }
     })
 }
@@ -186,7 +192,7 @@ fn serve_file(
 fn try_dir_redirect(
     req: &Request<Body>,
     root_dir: &PathBuf,
-) -> impl Future<Item = Option<Response<Body>>, Error = Error> {
+) -> impl Future<Output = Result<Option<Response<Body>>>> {
     if !req.uri().path().ends_with("/") {
         debug!("path does not end with /");
         if let Some(path) = local_path_for_request(req.uri(), root_dir) {
@@ -198,7 +204,7 @@ fn try_dir_redirect(
                     new_loc.push_str(query);
                 }
                 info!("redirecting {} to {}", req.uri(), new_loc);
-                future::result(
+                future::ready(
                     Response::builder()
                         .status(StatusCode::FOUND)
                         .header(header::LOCATION, new_loc)
@@ -224,7 +230,7 @@ fn try_dir_redirect(
 fn respond_with_file(
     file: tokio::fs::File,
     path: PathBuf,
-) -> impl Future<Item = Response<Body>, Error = Error> {
+) -> impl Future<Output = Result<Response<Body>>> {
     read_file(file).and_then(move |buf| {
         let mime_type = file_path_mime(&path);
         Response::builder()
@@ -237,7 +243,7 @@ fn respond_with_file(
 }
 
 /// Read a file and return a future of the buffer
-fn read_file(file: tokio::fs::File) -> impl Future<Item = Vec<u8>, Error = Error> {
+fn read_file(file: tokio::fs::File) -> impl Future<Output = Result<Vec<u8>>> {
     let buf: Vec<u8> = Vec::new();
     tokio::io::read_to_end(file, buf)
         .map_err(Error::Io)
@@ -319,38 +325,38 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Convert an error to an HTTP error response future, with correct response code.
-fn make_error_response(e: Error) -> impl Future<Item = Response<Body>, Error = Error> {
+fn make_error_response(e: Error) -> impl Future<Output = Result<Response<Body>>> {
     match e {
-        Error::Io(e) => Either::A(make_io_error_response(e)),
-        e => Either::B(make_internal_server_error_response(e)),
+        Error::Io(e) => Either::Left(make_io_error_response(e)),
+        e => Either::Left(make_internal_server_error_response(e)),
     }
 }
 
 /// Convert an error into a 500 internal server error, and log it.
 fn make_internal_server_error_response(
     err: Error,
-) -> impl Future<Item = Response<Body>, Error = Error> {
+) -> impl Future<Output = Result<Response<Body>>> {
     log_error_chain(&err);
     make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// Handle the one special io error (file not found) by returning a 404, otherwise
 /// return a 500.
-fn make_io_error_response(error: io::Error) -> impl Future<Item = Response<Body>, Error = Error> {
+fn make_io_error_response(error: io::Error) -> impl Future<Output = Result<Response<Body>>> {
     match error.kind() {
         io::ErrorKind::NotFound => {
             debug!("{}", error);
-            Either::A(make_error_response_from_code(StatusCode::NOT_FOUND))
+            Either::Left(make_error_response_from_code(StatusCode::NOT_FOUND))
         }
-        _ => Either::B(make_internal_server_error_response(Error::Io(error))),
+        _ => Either::Left(make_internal_server_error_response(Error::Io(error))),
     }
 }
 
 /// Make an error response given an HTTP status code.
 fn make_error_response_from_code(
     status: StatusCode,
-) -> impl Future<Item = Response<Body>, Error = Error> {
-    future::result({ render_error_html(status) })
+) -> impl Future<Output = Result<Response<Body>>> {
+    future::ready({ render_error_html(status) })
         .and_then(move |body| html_str_to_response(body, status))
 }
 
