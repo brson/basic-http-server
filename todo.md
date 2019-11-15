@@ -15,3 +15,16 @@
 - prevent responding files outside of root_dir
 - catch and report panic
 - error on binding bound socket / port
+- production-readiness
+  - stream files instead of loading into memory
+  - benchmark with ab / h2load
+  - consider behavior under resource exhastion
+  - what kind of resource limits need to be considered?
+  - handling too many open file handles
+  - handling too many connections
+  - preventing oom
+  - stress testing
+  - add structopt-toml support
+  - test conformance with h2spec / (what about http 1?)
+  - handle more request / response headers
+  - use more status codes
