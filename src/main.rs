@@ -259,9 +259,6 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
             .unwrap(),
         Some("png") => mime::IMAGE_PNG,
         Some("svg") => mime::IMAGE_SVG,
-        Some("toml") => "application/toml; charset=UTF-8"
-            .parse::<mime::Mime>()
-            .unwrap(),
         Some("txt") => mime::TEXT_PLAIN,
         Some("wasm") => "application/wasm".parse::<mime::Mime>().unwrap(),
         _ => mime::TEXT_PLAIN,
