@@ -121,7 +121,7 @@ fn run() -> Result<()> {
 
 /// Create an HTTP Response future for each Request.
 ///
-/// Errors are turned into an HTTP error response (404 or 500), and never
+/// Errors are turned into an appropriate HTTP error response, and never
 /// propagated upward for hyper to deal with.
 async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
     // Serve the requested file.
