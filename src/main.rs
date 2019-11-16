@@ -291,12 +291,6 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
 
     debug!("raw URI to path: {}", request_path);
 
-    // This is equivalent to checking for hyper::RequestUri::AbsoluteUri
-    if !request_path.starts_with("/") {
-        warn!("found non-absolute path {}", request_path);
-        return Err(Error::UriNotAbsolute);
-    }
-
     // Trim off the url parameters starting with '?'
     let end = request_path.find('?').unwrap_or(request_path.len());
     let request_path = &request_path[0..end];
