@@ -121,8 +121,8 @@ fn run() -> Result<()> {
 
 /// Create an HTTP Response future for each Request.
 ///
-/// Errors are turned into an Error response (404 or 500), and never propagated
-/// upward for hyper to deal with.
+/// Errors are turned into an HTTP error response (404 or 500), and never
+/// propagated upward for hyper to deal with.
 async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
     // Serve the requested file.
     let resp = serve_or_error(config, req).await;
