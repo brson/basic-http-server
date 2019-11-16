@@ -1,6 +1,6 @@
 [package]
 name = "basic-http-server"
-version = "0.8.0-alpha"
+version = "0.8.0"
 authors = ["Brian Anderson <andersrb@gmail.com>"]
 license = "MIT/Apache-2.0"
 description = "A simple static HTTP file server, for learning and local development"
