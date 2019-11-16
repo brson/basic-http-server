@@ -211,7 +211,7 @@ fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Re
         .map_err(Error::from)
 }
 
-/// Construct a 200 response with that file as the body, streaming it to avoid
+/// Construct a 200 response with the file as the body, streaming it to avoid
 /// loading it fully into memory.
 ///
 /// If the I/O here fails then an error future will be returned, and `serve`
