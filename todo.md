@@ -14,7 +14,8 @@
   - handle more request / response headers
   - use more status codes
   - deal with accept request header
-  - accept-encoding / content-encoding
+  - accept / content-type
+  - content-type charsets
   - etag and header method?
 - make_error_response should find io errors to any recursive depth
 - make plain path links, [index.html], work
