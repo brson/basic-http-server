@@ -10,9 +10,10 @@ use futures::stream::StreamExt;
 use futures::FutureExt;
 use handlebars::Handlebars;
 use http::status::StatusCode;
+use http::header::{HeaderMap, HeaderValue};
 use http::Uri;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{header, Body, Request, Response, Server};
+use hyper::{header, Body, Request, Response, Server, Method};
 use log::{debug, error, info, trace, warn};
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
@@ -123,6 +124,13 @@ fn run() -> Result<()> {
 /// Errors are turned into an Error response (404 or 500), and never propagated
 /// upward for hyper to deal with.
 async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
+    // This server only supports the GET method. Return an appropriate
+    // response otherwise.
+    if let Some(resp) = handle_unsupported_request(&req) {
+        // Transform internal errors to error responses.
+        return transform_error(resp);
+    }
+
     // Serve the requested file.
     let resp = serve_file(&req, &config.root_dir).await;
 
@@ -133,6 +141,37 @@ async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
     let resp = transform_error(resp);
 
     resp
+}
+
+/// Create an error response if the request contains unsupported methods,
+/// headers, etc.
+fn handle_unsupported_request(req: &Request<Body>) -> Option<Result<Response<Body>>> {
+    get_unsupported_request_message(req).map(|unsup| {
+        make_error_response_from_code_and_headers(unsup.code, unsup.headers)
+    })
+}
+
+/// Description of an unsupported request.
+struct Unsupported {
+    code: StatusCode,
+    headers: HeaderMap,
+}
+
+/// Create messages for unsupported requests.
+fn get_unsupported_request_message(req: &Request<Body>) -> Option<Unsupported> {
+    use std::iter::FromIterator;
+
+    // https://tools.ietf.org/html/rfc7231#section-6.5.5
+    if req.method() != Method::GET {
+        return Some(Unsupported {
+            code: StatusCode::METHOD_NOT_ALLOWED,
+            headers: HeaderMap::from_iter(vec![
+                (header::ALLOW, HeaderValue::from_static("GET")),
+            ]),
+        })
+    }
+
+    None
 }
 
 /// Turn any errors into an HTTP error response.
@@ -335,14 +374,28 @@ fn make_io_error_response(error: io::Error) -> Result<Response<Body>> {
 
 /// Make an error response given an HTTP status code.
 fn make_error_response_from_code(status: StatusCode) -> Result<Response<Body>> {
+    make_error_response_from_code_and_headers(status, HeaderMap::new())
+}
+
+/// Make an error response given an HTTP status code and response headers.
+fn make_error_response_from_code_and_headers(status: StatusCode, headers: HeaderMap) -> Result<Response<Body>> {
     let body = render_error_html(status)?;
-    let resp = html_str_to_response(body, status)?;
+    let resp = html_str_to_response_with_headers(body, status, headers)?;
     Ok(resp)
 }
 
 /// Make an HTTP response from a HTML string.
 fn html_str_to_response(body: String, status: StatusCode) -> Result<Response<Body>> {
-    Response::builder()
+    html_str_to_response_with_headers(body, status, HeaderMap::new())
+}
+
+/// Make an HTTP response from a HTML string and response headers.
+fn html_str_to_response_with_headers(body: String, status: StatusCode, headers: HeaderMap) -> Result<Response<Body>> {
+    let mut builder = Response::builder();
+
+    builder.headers_mut().map(|h| h.extend(headers));
+
+    builder
         .status(status)
         .header(header::CONTENT_LENGTH, body.len())
         .header(header::CONTENT_TYPE, mime::TEXT_HTML.as_ref())
