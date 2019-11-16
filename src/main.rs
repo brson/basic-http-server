@@ -364,7 +364,7 @@ fn make_internal_server_error_response(err: Error) -> Result<Response<Body>> {
     Ok(resp)
 }
 
-/// Handle the one special io error (file not found) by returning a 404, otherwise
+/// Handle the one special IO error (file not found) by returning a 404, otherwise
 /// return a 500.
 fn make_io_error_response(error: io::Error) -> Result<Response<Body>> {
     let resp = match error.kind() {
