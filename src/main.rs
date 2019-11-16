@@ -151,55 +151,6 @@ async fn serve_or_error(config: Config, req: Request<Body>) -> Result<Response<B
     resp
 }
 
-/// Create an error response if the request contains unsupported methods,
-/// headers, etc.
-fn handle_unsupported_request(req: &Request<Body>) -> Option<Result<Response<Body>>> {
-    get_unsupported_request_message(req).map(|unsup| {
-        make_error_response_from_code_and_headers(unsup.code, unsup.headers)
-    })
-}
-
-/// Description of an unsupported request.
-struct Unsupported {
-    code: StatusCode,
-    headers: HeaderMap,
-}
-
-/// Create messages for unsupported requests.
-fn get_unsupported_request_message(req: &Request<Body>) -> Option<Unsupported> {
-    use std::iter::FromIterator;
-
-    // https://tools.ietf.org/html/rfc7231#section-6.5.5
-    if req.method() != Method::GET {
-        return Some(Unsupported {
-            code: StatusCode::METHOD_NOT_ALLOWED,
-            headers: HeaderMap::from_iter(vec![
-                (header::ALLOW, HeaderValue::from_static("GET")),
-            ]),
-        })
-    }
-
-    None
-}
-
-/// Turn any errors into an HTTP error response.
-fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
-    match resp {
-        Ok(r) => r,
-        Err(e) => {
-            let resp = make_error_response(e);
-            match resp {
-                Ok(r) => r,
-                Err(e) => {
-                    // Last-ditch error reporting if even making the error response failed.
-                    error!("unexpected internal error: {}", e);
-                    Response::new(Body::from(format!("unexpected internal error: {}", e)))
-                }
-            }
-        }
-    }
-}
-
 /// Serve static files from a root directory.
 async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<Body>> {
     // First, try to do a redirect. If that doesn't happen, then find the path
@@ -348,6 +299,55 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
     debug!("URL · path : {} · {}", uri, path.display());
 
     Ok(path)
+}
+
+/// Create an error response if the request contains unsupported methods,
+/// headers, etc.
+fn handle_unsupported_request(req: &Request<Body>) -> Option<Result<Response<Body>>> {
+    get_unsupported_request_message(req).map(|unsup| {
+        make_error_response_from_code_and_headers(unsup.code, unsup.headers)
+    })
+}
+
+/// Description of an unsupported request.
+struct Unsupported {
+    code: StatusCode,
+    headers: HeaderMap,
+}
+
+/// Create messages for unsupported requests.
+fn get_unsupported_request_message(req: &Request<Body>) -> Option<Unsupported> {
+    use std::iter::FromIterator;
+
+    // https://tools.ietf.org/html/rfc7231#section-6.5.5
+    if req.method() != Method::GET {
+        return Some(Unsupported {
+            code: StatusCode::METHOD_NOT_ALLOWED,
+            headers: HeaderMap::from_iter(vec![
+                (header::ALLOW, HeaderValue::from_static("GET")),
+            ]),
+        })
+    }
+
+    None
+}
+
+/// Turn any errors into an HTTP error response.
+fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
+    match resp {
+        Ok(r) => r,
+        Err(e) => {
+            let resp = make_error_response(e);
+            match resp {
+                Ok(r) => r,
+                Err(e) => {
+                    // Last-ditch error reporting if even making the error response failed.
+                    error!("unexpected internal error: {}", e);
+                    Response::new(Body::from(format!("unexpected internal error: {}", e)))
+                }
+            }
+        }
+    }
 }
 
 /// Convert an error to an HTTP error response future, with correct response code.
