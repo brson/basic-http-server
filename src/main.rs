@@ -247,23 +247,11 @@ async fn respond_with_file(path: PathBuf) -> Result<Response<Body>> {
     Ok(resp)
 }
 
-/// Get a MIME type based on the file extension
+/// Get a MIME type based on the file extension.
+///
+/// If the extension is unknown then return "application/octet-stream".
 fn file_path_mime(file_path: &Path) -> mime::Mime {
-    let mime_type = match file_path.extension().and_then(std::ffi::OsStr::to_str) {
-        Some("css") => mime::TEXT_CSS,
-        Some("html") => mime::TEXT_HTML,
-        Some("js") => mime::TEXT_JAVASCRIPT,
-        Some("jpg") => mime::IMAGE_JPEG,
-        Some("md") => "text/markdown; charset=UTF-8"
-            .parse::<mime::Mime>()
-            .unwrap(),
-        Some("png") => mime::IMAGE_PNG,
-        Some("svg") => mime::IMAGE_SVG,
-        Some("txt") => mime::TEXT_PLAIN,
-        Some("wasm") => "application/wasm".parse::<mime::Mime>().unwrap(),
-        _ => mime::TEXT_PLAIN,
-    };
-    mime_type
+    mime_guess::from_path(file_path).first_or_octet_stream()
 }
 
 /// Find the local path for a request URI, converting directories to the

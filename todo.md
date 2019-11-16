@@ -1,6 +1,4 @@
 - mime types
-  - don't use text/plain mime type by default
-  - add more mime types, maybe use tree_magic or mime_guess
   - teach ext to serve various types as "text/plain"
   - teach ext to do syntax highlighting
 - production-readiness
