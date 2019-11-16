@@ -1,4 +1,4 @@
-//! A simple HTTP server, for learning and local doc development.
+//! A simple HTTP server, for learning and local development.
 
 #[macro_use]
 extern crate derive_more;
