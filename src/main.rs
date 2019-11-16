@@ -130,17 +130,17 @@ async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
     let resp = ext::serve(config, req, resp).await;
 
     // Transform internal errors to error responses.
-    let resp = transform_error(resp).await;
+    let resp = transform_error(resp);
 
     resp
 }
 
 /// Turn any errors into an HTTP error response.
-async fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
+fn transform_error(resp: Result<Response<Body>>) -> Response<Body> {
     match resp {
         Ok(r) => r,
         Err(e) => {
-            let resp = make_error_response(e).await;
+            let resp = make_error_response(e);
             match resp {
                 Ok(r) => r,
                 Err(e) => {
@@ -304,37 +304,37 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
 }
 
 /// Convert an error to an HTTP error response future, with correct response code.
-async fn make_error_response(e: Error) -> Result<Response<Body>> {
+fn make_error_response(e: Error) -> Result<Response<Body>> {
     let resp = match e {
-        Error::Io(e) => make_io_error_response(e).await?,
-        Error::Ext(ext::Error::Io(e)) => make_io_error_response(e).await?,
-        e => make_internal_server_error_response(e).await?,
+        Error::Io(e) => make_io_error_response(e)?,
+        Error::Ext(ext::Error::Io(e)) => make_io_error_response(e)?,
+        e => make_internal_server_error_response(e)?,
     };
     Ok(resp)
 }
 
 /// Convert an error into a 500 internal server error, and log it.
-async fn make_internal_server_error_response(err: Error) -> Result<Response<Body>> {
+fn make_internal_server_error_response(err: Error) -> Result<Response<Body>> {
     log_error_chain(&err);
-    let resp = make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR).await?;
+    let resp = make_error_response_from_code(StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(resp)
 }
 
 /// Handle the one special io error (file not found) by returning a 404, otherwise
 /// return a 500.
-async fn make_io_error_response(error: io::Error) -> Result<Response<Body>> {
+fn make_io_error_response(error: io::Error) -> Result<Response<Body>> {
     let resp = match error.kind() {
         io::ErrorKind::NotFound => {
             debug!("{}", error);
-            make_error_response_from_code(StatusCode::NOT_FOUND).await?
+            make_error_response_from_code(StatusCode::NOT_FOUND)?
         }
-        _ => make_internal_server_error_response(Error::Io(error)).await?,
+        _ => make_internal_server_error_response(Error::Io(error))?,
     };
     Ok(resp)
 }
 
 /// Make an error response given an HTTP status code.
-async fn make_error_response_from_code(status: StatusCode) -> Result<Response<Body>> {
+fn make_error_response_from_code(status: StatusCode) -> Result<Response<Body>> {
     let body = render_error_html(status)?;
     let resp = html_str_to_response(body, status)?;
     Ok(resp)
