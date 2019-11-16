@@ -124,11 +124,22 @@ fn run() -> Result<()> {
 /// Errors are turned into an Error response (404 or 500), and never propagated
 /// upward for hyper to deal with.
 async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
+    // Serve the requested file.
+    let resp = serve_or_error(config, req).await;
+
+    // Transform internal errors to error responses.
+    let resp = transform_error(resp);
+
+    resp
+}
+
+/// Handle all types of requests, but don't deal with transforming internal
+/// errors to HTTP error responses.
+async fn serve_or_error(config: Config, req: Request<Body>) -> Result<Response<Body>> {
     // This server only supports the GET method. Return an appropriate
     // response otherwise.
     if let Some(resp) = handle_unsupported_request(&req) {
-        // Transform internal errors to error responses.
-        return transform_error(resp);
+        return resp;
     }
 
     // Serve the requested file.
@@ -136,9 +147,6 @@ async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
 
     // Give developer extensions an opportunity to post-process the request/response pair.
     let resp = ext::serve(config, req, resp).await;
-
-    // Transform internal errors to error responses.
-    let resp = transform_error(resp);
 
     resp
 }
