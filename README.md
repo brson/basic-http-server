@@ -46,8 +46,8 @@ This makes `basic-http-server` useful for the following scenarios:
 
 ## Installation and Use
 
-**Note that `basic-http-server` is not production-ready and should not be used
-in production. It is a learning and development tool.**
+**Note that `basic-http-server` is not production-ready and should not be
+exposed to the internet. It is a learning and development tool.**
 
 Install with `cargo install`:
 
