@@ -31,12 +31,7 @@ pub async fn serve(
         return resp;
     }
 
-    let path = super::local_path_for_request(&req.uri(), &config.root_dir);
-    let path = if let Some(path) = path {
-        path
-    } else {
-        return resp;
-    };
+    let path = super::local_path_for_request(&req.uri(), &config.root_dir)?;
     let file_ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
 
     if file_ext == "md" {

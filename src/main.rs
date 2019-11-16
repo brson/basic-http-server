@@ -164,11 +164,9 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
         return Ok(redir_resp);
     }
 
-    if let Some(path) = local_path_with_maybe_index(req.uri(), &root_dir) {
-        Ok(respond_with_file(path).await?)
-    } else {
-        Err(Error::UrlToPath)
-    }
+    let path = local_path_with_maybe_index(req.uri(), &root_dir)?;
+
+    Ok(respond_with_file(path).await?)
 }
 
 /// Try to do a 302 redirect for directories.
@@ -192,28 +190,27 @@ fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Re
     }
 
     debug!("path does not end with /");
-    if let Some(path) = local_path_for_request(req.uri(), root_dir) {
-        if !path.is_dir() {
-            return Ok(None);
-        }
 
-        let mut new_loc = req.uri().path().to_string();
-        new_loc.push_str("/");
-        if let Some(query) = req.uri().query() {
-            new_loc.push_str("?");
-            new_loc.push_str(query);
-        }
+    let path = local_path_for_request(req.uri(), root_dir)?;
 
-        info!("redirecting {} to {}", req.uri(), new_loc);
-        Response::builder()
-            .status(StatusCode::FOUND)
-            .header(header::LOCATION, new_loc)
-            .body(Body::empty())
-            .map(Some)
-            .map_err(Error::from)
-    } else {
-        Err(Error::UrlToPath)
+    if !path.is_dir() {
+        return Ok(None);
     }
+
+    let mut new_loc = req.uri().path().to_string();
+    new_loc.push_str("/");
+    if let Some(query) = req.uri().query() {
+        new_loc.push_str("?");
+        new_loc.push_str(query);
+    }
+
+    info!("redirecting {} to {}", req.uri(), new_loc);
+    Response::builder()
+        .status(StatusCode::FOUND)
+        .header(header::LOCATION, new_loc)
+        .body(Body::empty())
+        .map(Some)
+        .map_err(Error::from)
 }
 
 /// Construct a 200 response with that file as the body, streaming it to avoid
@@ -274,7 +271,7 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
 
 /// Find the local path for a request URI, converting directories to the
 /// `index.html` file.
-fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
+fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
     local_path_for_request(uri, root_dir).map(|mut p: PathBuf| {
         if p.is_dir() {
             p.push("index.html");
@@ -287,7 +284,7 @@ fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Map the request's URI to a local path
-fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
+fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
     debug!("raw URI: {}", uri);
 
     let request_path = uri.path();
@@ -297,7 +294,7 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     // This is equivalent to checking for hyper::RequestUri::AbsoluteUri
     if !request_path.starts_with("/") {
         warn!("found non-absolute path {}", request_path);
-        return None;
+        return Err(Error::UriNotAbsolute);
     }
 
     // Trim off the url parameters starting with '?'
@@ -309,9 +306,8 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
     let request_path = if let Ok(p) = decoded.decode_utf8() {
         p
     } else {
-        error!("unable to percent-decode URL: {}", request_path);
-        // FIXME: Error handling
-        return None;
+        error!("non utf-8 URL: {}", request_path);
+        return Err(Error::UriNotUtf8);
     };
 
     // Append the requested path to the root directory
@@ -320,12 +316,12 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Option<PathBuf> {
         path.push(&request_path[1..]);
     } else {
         warn!("found non-absolute path {}", request_path);
-        return None;
+        return Err(Error::UriNotAbsolute);
     }
 
     debug!("URL · path : {} · {}", uri, path.display());
 
-    Some(path)
+    Ok(path)
 }
 
 /// Convert an error to an HTTP error response future, with correct response code.
@@ -446,8 +442,11 @@ pub enum Error {
     #[display(fmt = "failed to render template")]
     TemplateRender(handlebars::TemplateRenderError),
 
-    #[display(fmt = "failed to convert URL to local file path")]
-    UrlToPath,
+    #[display(fmt = "requested URI is not an absolute path")]
+    UriNotAbsolute,
+
+    #[display(fmt = "requested URI is not UTF-8")]
+    UriNotUtf8,
 }
 
 impl StdError for Error {
@@ -461,7 +460,8 @@ impl StdError for Error {
             Hyper(e) => Some(e),
             AddrParse(e) => Some(e),
             TemplateRender(e) => Some(e),
-            UrlToPath => None,
+            UriNotAbsolute => None,
+            UriNotUtf8 => None,
         }
     }
 }
