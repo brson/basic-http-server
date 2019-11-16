@@ -39,26 +39,27 @@ pub async fn serve(
         return Ok(md_path_to_html(&path).await?);
     }
 
-    // If the requested file was not found, then try doing a directory listing.
-    if let Err(e) = resp {
-        match e {
-            super::Error::Io(e) => {
-                if e.kind() == io::ErrorKind::NotFound {
-                    let list_dir_resp = maybe_list_dir(&config.root_dir, &path).await?;
-                    trace!("using directory list extension");
-                    if let Some(f) = list_dir_resp {
-                        Ok(f)
-                    } else {
-                        Err(super::Error::from(e))
-                    }
+    match resp {
+        Ok(mut resp) => {
+            // Serve source code as plain text to render them in the browser
+            maybe_convert_mime_type_to_text(&req, &mut resp);
+            Ok(resp)
+        }
+        Err(super::Error::Io(e)) => {
+            // If the requested file was not found, then try doing a directory listing.
+            if e.kind() == io::ErrorKind::NotFound {
+                let list_dir_resp = maybe_list_dir(&config.root_dir, &path).await?;
+                trace!("using directory list extension");
+                if let Some(f) = list_dir_resp {
+                    Ok(f)
                 } else {
                     Err(super::Error::from(e))
                 }
+            } else {
+                Err(super::Error::from(e))
             }
-            _ => Err(e),
         }
-    } else {
-        resp
+        r => r,
     }
 }
 
@@ -91,6 +92,71 @@ async fn md_path_to_html(path: &Path) -> Result<Response<Body>> {
         .body(Body::from(html))
         .map_err(Error::from)
 }
+
+fn maybe_convert_mime_type_to_text(req: &Request<Body>, resp: &mut Response<Body>) {
+    let path = req.uri().path();
+    let file_name = path.rsplit('/').next();
+    if let Some(file_name) = file_name {
+        let mut do_convert = false;
+
+        let ext = file_name.rsplit('.').next();
+        if let Some(ext) = ext {
+            if TEXT_EXTENSIONS.contains(&ext) {
+                do_convert = true;
+            }
+        }
+
+        if TEXT_FILES.contains(&file_name) {
+            do_convert = true;
+        }
+
+        if do_convert {
+            use http::header::HeaderValue;
+            let val =
+                HeaderValue::from_str(mime::TEXT_PLAIN.as_ref()).expect("mime is valid header");
+            resp.headers_mut().insert(header::CONTENT_TYPE, val);
+        }
+    }
+}
+
+#[rustfmt::skip]
+static TEXT_EXTENSIONS: &[&'static str] = &[
+    "c",
+    "cc",
+    "cpp",
+    "csv",
+    "fst",
+    "h",
+    "java",
+    "md",
+    "mk",
+    "proto",
+    "py",
+    "rb",
+    "rs",
+    "rst",
+    "sh",
+    "toml",
+    "yml",
+];
+
+#[rustfmt::skip]
+static TEXT_FILES: &[&'static str] = &[
+    ".gitattributes",
+    ".gitignore",
+    ".mailmap",
+    "AUTHORS",
+    "CODE_OF_CONDUCT",
+    "CONTRIBUTING",
+    "COPYING",
+    "COPYRIGHT",
+    "Cargo.lock",
+    "LICENSE",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "Makefile",
+    "rust-toolchain",
+];
 
 /// Try to treat the path as a directory and list the contents as HTML.
 async fn maybe_list_dir(root_dir: &Path, path: &Path) -> Result<Option<Response<Body>>> {

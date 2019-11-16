@@ -30,6 +30,9 @@ useful for developing documentation locally. Those extensions are:
 
 - Listing directories when no "index.html" file is found.
 
+- Serving common source code types and files as "text/plain" so they are
+  rendered in the browser.
+
 This makes `basic-http-server` useful for the following scenarios:
 
 - Previewing markdown content. Draft your `README.md` changes and view them

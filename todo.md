@@ -1,6 +1,5 @@
-- mime types
-  - teach ext to serve various types as "text/plain"
-  - teach ext to do syntax highlighting
+- what happens if content-type ends up incorrect?
+- teach ext to do syntax highlighting
 - production-readiness
   - benchmark with ab / h2load
   - consider behavior under resource exhastion
