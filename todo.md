@@ -1,3 +1,4 @@
+- fix h1/title to work with reader view
 - what happens if content-type ends up incorrect?
 - teach ext to do syntax highlighting
 - production-readiness
