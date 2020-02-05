@@ -1,4 +1,5 @@
 - add flag to allow html in markdown
+  - it seems github allows html? in some cases? investigate
 - fix h1/title to work with reader view
 - what happens if content-type ends up incorrect?
 - teach ext to do syntax highlighting
