@@ -1,3 +1,6 @@
+- add --public flag to automatically find the public ip address
+- add --https-only flag
+- add authentication
 - add flag to allow html in markdown
   - it seems github allows html? in some cases? investigate
 - fix h1/title to work with reader view
