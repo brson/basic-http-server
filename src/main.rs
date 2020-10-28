@@ -22,9 +22,9 @@ use std::io;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
-use tokio::codec::{BytesCodec, FramedRead};
 use tokio::fs::File;
 use tokio::runtime::Runtime;
+use tokio_util::codec::{BytesCodec, FramedRead};
 
 // Developer extensions. These are contained in their own module so that the
 // principle HTTP server behavior is not obscured.
@@ -113,7 +113,7 @@ fn run() -> Result<()> {
     let server = Server::bind(&config.addr).serve(make_service);
 
     // Create a Tokio runtime and block on Hyper forever.
-    let rt = Runtime::new()?;
+    let mut rt = Runtime::new()?;
     rt.block_on(server)?;
 
     Ok(())

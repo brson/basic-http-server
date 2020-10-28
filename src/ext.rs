@@ -15,7 +15,7 @@ use std::ffi::OsStr;
 use std::fmt::Write;
 use std::io;
 use std::path::{Path, PathBuf};
-use tokio_fs::DirEntry;
+use tokio::fs::DirEntry;
 
 /// The entry point to extensions. Extensions are given both the request and the
 /// response result from regular file serving, and have the opportunity to

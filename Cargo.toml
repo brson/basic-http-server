@@ -10,20 +10,20 @@ readme = "README.md"
 edition = "2018"
 
 [dependencies]
-bytes = "0.4.12"
+bytes = "0.5"
 clap = "2.33.0"
 comrak = "0.6.2"
 derive_more = "0.15.0"
 env_logger = "0.6.2"
-futures-preview = "0.3.0-alpha.19"
-handlebars = "1.1.0"
-http = "0.1.19"
-hyper = { version = "0.13.0-alpha.4", features = ["unstable-stream"] }
+futures = "0.3.7"
+handlebars = "3.5.1"
+http = "0.2"
+hyper = "0.13.8"
 log = "0.4.8"
 mime = "0.3.14"
 mime_guess = "2.0.1"
 percent-encoding = "2.1.0"
 serde = { version = "1.0.102", features = ["derive"] }
-tokio = "0.2.0-alpha.6"
-tokio-fs = "0.2.0-alpha.6"
+tokio = { version = "0.2.22", features = ["fs"] }
+tokio-util = { version = "0.3", features = ["codec"] }
 structopt = "0.2.18"
