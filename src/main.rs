@@ -23,16 +23,16 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 use tokio::fs::File;
-use tokio::runtime::Runtime;
 use tokio_util::codec::{BytesCodec, FramedRead};
 
 // Developer extensions. These are contained in their own module so that the
 // principle HTTP server behavior is not obscured.
 mod ext;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Set up error handling immediately
-    if let Err(e) = run() {
+    if let Err(e) = run().await {
         log_error_chain(&e);
     }
 }
@@ -70,7 +70,7 @@ pub struct Config {
     use_extensions: bool,
 }
 
-fn run() -> Result<()> {
+async fn run() -> Result<()> {
     // Initialize logging, and log the "info" level for this crate only, unless
     // the environment contains `RUST_LOG`.
     let env = Env::new().default_filter_or("basic_http_server=info");
@@ -111,11 +111,7 @@ fn run() -> Result<()> {
     // Create a Hyper Server, binding to an address, and use
     // our service builder.
     let server = Server::bind(&config.addr).serve(make_service);
-
-    // Create a Tokio runtime and block on Hyper forever.
-    let mut rt = Runtime::new()?;
-    rt.block_on(server)?;
-
+    server.await?;
     Ok(())
 }
 

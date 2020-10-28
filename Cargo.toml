@@ -24,6 +24,6 @@ mime = "0.3.14"
 mime_guess = "2.0.1"
 percent-encoding = "2.1.0"
 serde = { version = "1.0.102", features = ["derive"] }
-tokio = { version = "0.2.22", features = ["fs"] }
+tokio = { version = "0.2.22", features = ["fs", "sync", "macros"] }
 tokio-util = { version = "0.3", features = ["codec"] }
 structopt = "0.2.18"
