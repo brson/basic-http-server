@@ -73,7 +73,7 @@ pub struct Config {
 async fn run() -> Result<()> {
     // Initialize logging, and log the "info" level for this crate only, unless
     // the environment contains `RUST_LOG`.
-    let env = Env::new().default_filter_or("basic_http_server=info");
+    let env = Env::new().default_filter_or("petushki=info");
     Builder::from_env(env)
         .default_format_module_path(false)
         .default_format_timestamp(false)
@@ -85,7 +85,7 @@ async fn run() -> Result<()> {
     let config = Config::from_args();
 
     // Display the configuration to be helpful
-    info!("basic-http-server {}", env!("CARGO_PKG_VERSION"));
+    info!("petushki {}", env!("CARGO_PKG_VERSION"));
     info!("addr: http://{}", config.addr);
     info!("root dir: {}", config.root_dir.display());
     info!("extensions: {}", config.use_extensions);

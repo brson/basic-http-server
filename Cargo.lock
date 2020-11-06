@@ -35,29 +35,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d49d90015b3c36167a20fe2810c5cd875ad504b39cff3d4eae7977e6b7c1cb2"
 
 [[package]]
-name = "basic-http-server"
-version = "0.8.1"
-dependencies = [
- "bytes",
- "clap",
- "comrak",
- "derive_more",
- "env_logger",
- "futures",
- "handlebars",
- "http",
- "hyper",
- "log",
- "mime",
- "mime_guess",
- "percent-encoding",
- "serde",
- "structopt",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -607,6 +584,29 @@ dependencies = [
  "maplit",
  "pest",
  "sha-1",
+]
+
+[[package]]
+name = "petushki"
+version = "0.9.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "comrak",
+ "derive_more",
+ "env_logger",
+ "futures",
+ "handlebars",
+ "http",
+ "hyper",
+ "log",
+ "mime",
+ "mime_guess",
+ "percent-encoding",
+ "serde",
+ "structopt",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
