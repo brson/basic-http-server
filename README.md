@@ -1,3 +1,7 @@
+# `petushki`
+
+This project is forked from https://github.com/brson/basic-http-server
+
 # `basic-http-server`
 
 A simple static HTTP server, for learning and local development.
@@ -11,7 +15,7 @@ A simple static HTTP server, for learning and local development.
 - _for local development_. It serves static HTML content, and with the `-x`
    flag, provides convenience features useful for creating developer
    documentation, including markdown rendering and directory listing.
- 
+
 The entire reference source for setting up a `hyper` HTTP server is contained in
 [`main.rs`]. The [`ext.rs`] file contains developer extensions.
 
