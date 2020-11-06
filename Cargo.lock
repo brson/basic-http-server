@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "petushki"
-version = "0.9.0"
+version = "0.9.1-alpha.0"
 dependencies = [
  "bytes",
  "clap",
