@@ -21,6 +21,7 @@ use std::error::Error as StdError;
 use std::io;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use structopt::StructOpt;
 use tokio::codec::{BytesCodec, FramedRead};
 use tokio::fs::File;
@@ -51,7 +52,7 @@ fn log_error_chain(mut e: &dyn StdError) {
 #[derive(Clone, StructOpt)]
 #[structopt(about = "A basic HTTP file server")]
 pub struct Config {
-    /// The IP:PORT combination.
+    /// The IP:PORT combination
     #[structopt(
         name = "ADDR",
         short = "a",
@@ -65,9 +66,47 @@ pub struct Config {
     #[structopt(name = "ROOT", parse(from_os_str), default_value = ".")]
     root_dir: PathBuf,
 
-    /// Enable developer extensions.
+    /// Enable developer extensions
     #[structopt(short = "x")]
     use_extensions: bool,
+
+    /// Allow serving files outside the root given by ROOT, meaining all your files are accessible.
+    ///
+    /// This allows access to *all files* on your computer, so don't use this on untrusted networks
+    /// like the internet.
+    #[structopt(long = "allow-escape-root")]
+    allow_escape_root: bool,
+}
+
+impl Config {
+    /// Ensure that the `root_dir` is a canonical absolute path with no `.` or `..` in.
+    fn canonical_root_dir(&mut self) -> Result<()> {
+        // This line of code takes what might be a relative path and returns an absolute path
+        // without any `.` or `..` in. If the path then points to a symbolic link, the code then
+        // follows the link, repeating until it finds something which is not a symbolic link. This
+        // is what is set as the `root_dir`.
+        //
+        // Doing this makes it possible to report the real root directory in the log, and also
+        // makes checking that a file is actually in the root directory more robust.
+        let canonical_root_dir = self.root_dir.canonicalize()?;
+        self.root_dir = canonical_root_dir;
+        Ok(())
+    }
+
+    /// Checks if the given path is in the root dir.
+    ///
+    /// If it is, return its canonical representation. If it isn't, return an error. This function
+    /// will error if the path does not point to an actual file or directory.
+    fn check_in_root_dir(&self, path: PathBuf) -> Result<PathBuf> {
+        let path = path.canonicalize()?;
+
+        // Skip the check if we've configured to allow files outside the root.
+        if self.allow_escape_root || path.starts_with(&self.root_dir) {
+            Ok(path)
+        } else {
+            return Err(Error::EntityNotInRoot);
+        }
+    }
 }
 
 fn run() -> Result<()> {
@@ -82,7 +121,11 @@ fn run() -> Result<()> {
     // Create the configuration from the command line arguments. It
     // includes the IP address and port to listen on and the path to use
     // as the HTTP server's root directory.
-    let config = Config::from_args();
+    let mut config = Config::from_args();
+    config.canonical_root_dir()?;
+    // Put `config` in an `Arc`. This means we can't mutate `config` any more, but
+    // also means it is very cheap to clone, since all clones point to the same data.
+    let config = Arc::new(config);
 
     // Display the configuration to be helpful
     info!("basic-http-server {}", env!("CARGO_PKG_VERSION"));
@@ -110,7 +153,7 @@ fn run() -> Result<()> {
 
     // Create a Hyper Server, binding to an address, and use
     // our service builder.
-    let server = Server::bind(&config.addr).serve(make_service);
+    let server = Server::try_bind(&config.addr)?.serve(make_service);
 
     // Create a Tokio runtime and block on Hyper forever.
     let rt = Runtime::new()?;
@@ -123,7 +166,7 @@ fn run() -> Result<()> {
 ///
 /// Errors are turned into an appropriate HTTP error response, and never
 /// propagated upward for hyper to deal with.
-async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
+async fn serve(config: Arc<Config>, req: Request<Body>) -> Response<Body> {
     // Serve the requested file.
     let resp = serve_or_error(config, req).await;
 
@@ -135,7 +178,7 @@ async fn serve(config: Config, req: Request<Body>) -> Response<Body> {
 
 /// Handle all types of requests, but don't deal with transforming internal
 /// errors to HTTP error responses.
-async fn serve_or_error(config: Config, req: Request<Body>) -> Result<Response<Body>> {
+async fn serve_or_error(config: Arc<Config>, req: Request<Body>) -> Result<Response<Body>> {
     // This server only supports the GET method. Return an appropriate
     // response otherwise.
     if let Some(resp) = handle_unsupported_request(&req) {
@@ -143,7 +186,9 @@ async fn serve_or_error(config: Config, req: Request<Body>) -> Result<Response<B
     }
 
     // Serve the requested file.
-    let resp = serve_file(&req, &config.root_dir).await;
+    // Here we pass a `&PathBuf` to a function expecting a `&Path`. This works because of *deref
+    // coercions*, in this case meaning that `PathBuf` implements `Deref` with `Target=Path`.
+    let resp = serve_file(&req, &config).await;
 
     // Give developer extensions an opportunity to post-process the request/response pair.
     let resp = ext::serve(config, req, resp).await;
@@ -152,19 +197,19 @@ async fn serve_or_error(config: Config, req: Request<Body>) -> Result<Response<B
 }
 
 /// Serve static files from a root directory.
-async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<Body>> {
+async fn serve_file(req: &Request<Body>, config: &Config) -> Result<Response<Body>> {
     // First, try to do a redirect. If that doesn't happen, then find the path
     // to the static file we want to serve - which may be `index.html` for
     // directories - and send a response containing that file.
-    let maybe_redir_resp = try_dir_redirect(req, &root_dir)?;
+    let maybe_redir_resp = try_dir_redirect(req, config)?;
 
     if let Some(redir_resp) = maybe_redir_resp {
         return Ok(redir_resp);
     }
 
-    let path = local_path_with_maybe_index(req.uri(), &root_dir)?;
+    let path = local_path_with_maybe_index(req.uri(), config)?;
 
-    Ok(respond_with_file(path).await?)
+    Ok(respond_with_file(&path, config).await?)
 }
 
 /// Try to do a 302 redirect for directories.
@@ -182,14 +227,14 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
 /// the case for URL `docs/`.
 ///
 /// This seems to match the behavior of other static web servers.
-fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Response<Body>>> {
+fn try_dir_redirect(req: &Request<Body>, config: &Config) -> Result<Option<Response<Body>>> {
     if req.uri().path().ends_with("/") {
         return Ok(None);
     }
 
     debug!("path does not end with /");
 
-    let path = local_path_for_request(req.uri(), root_dir)?;
+    let path = local_path_for_request(req.uri(), config)?;
 
     if !path.is_dir() {
         return Ok(None);
@@ -216,7 +261,9 @@ fn try_dir_redirect(req: &Request<Body>, root_dir: &PathBuf) -> Result<Option<Re
 ///
 /// If the I/O here fails then an error future will be returned, and `serve`
 /// will convert it into the appropriate HTTP error response.
-async fn respond_with_file(path: PathBuf) -> Result<Response<Body>> {
+async fn respond_with_file(path: &Path, config: &Config) -> Result<Response<Body>> {
+    config.check_in_root_dir(path.to_owned())?;
+
     let mime_type = file_path_mime(&path);
 
     let file = File::open(path).await?;
@@ -254,8 +301,8 @@ fn file_path_mime(file_path: &Path) -> mime::Mime {
 
 /// Find the local path for a request URI, converting directories to the
 /// `index.html` file.
-fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
-    local_path_for_request(uri, root_dir).map(|mut p: PathBuf| {
+fn local_path_with_maybe_index(uri: &Uri, config: &Config) -> Result<PathBuf> {
+    local_path_for_request(uri, config).map(|mut p: PathBuf| {
         if p.is_dir() {
             p.push("index.html");
             debug!("trying {} for directory URL", p.display());
@@ -267,7 +314,7 @@ fn local_path_with_maybe_index(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
 }
 
 /// Map the request's URI to a local path
-fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
+fn local_path_for_request(uri: &Uri, config: &Config) -> Result<PathBuf> {
     debug!("raw URI: {}", uri);
 
     let request_path = uri.path();
@@ -288,7 +335,7 @@ fn local_path_for_request(uri: &Uri, root_dir: &Path) -> Result<PathBuf> {
     };
 
     // Append the requested path to the root directory
-    let mut path = root_dir.to_owned();
+    let mut path = config.root_dir.to_owned();
     if request_path.starts_with('/') {
         path.push(&request_path[1..]);
     } else {
@@ -352,6 +399,7 @@ fn make_error_response(e: Error) -> Result<Response<Body>> {
     let resp = match e {
         Error::Io(e) => make_io_error_response(e)?,
         Error::Ext(ext::Error::Io(e)) => make_io_error_response(e)?,
+        Error::EntityNotInRoot => make_error_response_from_code(StatusCode::FORBIDDEN)?,
         e => make_internal_server_error_response(e)?,
     };
     Ok(resp)
@@ -491,6 +539,9 @@ pub enum Error {
 
     #[display(fmt = "requested URI is not UTF-8")]
     UriNotUtf8,
+
+    #[display(fmt = "requested file or directory is not in the root directory")]
+    EntityNotInRoot,
 }
 
 impl StdError for Error {
@@ -504,8 +555,7 @@ impl StdError for Error {
             Hyper(e) => Some(e),
             AddrParse(e) => Some(e),
             TemplateRender(e) => Some(e),
-            UriNotAbsolute => None,
-            UriNotUtf8 => None,
+            UriNotAbsolute | UriNotUtf8 | EntityNotInRoot => None,
         }
     }
 }
