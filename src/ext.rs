@@ -15,13 +15,14 @@ use std::ffi::OsStr;
 use std::fmt::Write;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio_fs::DirEntry;
 
 /// The entry point to extensions. Extensions are given both the request and the
 /// response result from regular file serving, and have the opportunity to
 /// replace the response with their own response.
 pub async fn serve(
-    config: Config,
+    config: Arc<Config>,
     req: Request<Body>,
     resp: super::Result<Response<Body>>,
 ) -> super::Result<Response<Body>> {
@@ -31,12 +32,14 @@ pub async fn serve(
         return resp;
     }
 
-    let path = super::local_path_for_request(&req.uri(), &config.root_dir)?;
+    // this function also checks we are allowed to access the file (whether it is in the root or we
+    // have enabled out-of-root access).
+    let path = super::local_path_for_request(&req.uri(), &config)?;
     let file_ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
 
     if file_ext == "md" {
         trace!("using markdown extension");
-        return Ok(md_path_to_html(&path).await?);
+        return Ok(md_path_to_html(&path, &config).await?);
     }
 
     match resp {
@@ -48,12 +51,19 @@ pub async fn serve(
         Err(super::Error::Io(e)) => {
             // If the requested file was not found, then try doing a directory listing.
             if e.kind() == io::ErrorKind::NotFound {
-                let list_dir_resp = maybe_list_dir(&config.root_dir, &path).await?;
+                let list_dir_resp = maybe_list_dir(&config, &path).await?;
                 trace!("using directory list extension");
                 if let Some(f) = list_dir_resp {
                     Ok(f)
                 } else {
-                    Err(super::Error::from(e))
+                    // Serve the root, so that the urls in a single-page app will work.
+                    if NO_SPA_EXTENSIONS.contains(&file_ext) {
+                        Err(super::Error::from(e))
+                    } else {
+                        log::trace!("serve index.html for spa");
+                        let path = config.root_dir.join("index.html");
+                        Ok(super::respond_with_file(&path, &config).await?)
+                    }
                 }
             } else {
                 Err(super::Error::from(e))
@@ -64,7 +74,10 @@ pub async fn serve(
 }
 
 /// Load a markdown file, render to HTML, and return the response.
-async fn md_path_to_html(path: &Path) -> Result<Response<Body>> {
+async fn md_path_to_html(path: &Path, config: &Config) -> Result<Response<Body>> {
+    // Check we are allowed to display file
+    let path = config.check_in_root_dir(path.to_owned())?;
+
     // Render Markdown like GitHub
     let mut options = ComrakOptions::default();
     options.ext_autolink = true;
@@ -120,6 +133,16 @@ fn maybe_convert_mime_type_to_text(req: &Request<Body>, resp: &mut Response<Body
 }
 
 #[rustfmt::skip]
+static NO_SPA_EXTENSIONS: &[&'static str] = &[
+    "html",
+    "js",
+    "wasm",
+    "css",
+    "md",
+    "json",
+];
+
+#[rustfmt::skip]
 static TEXT_EXTENSIONS: &[&'static str] = &[
     "c",
     "cc",
@@ -159,19 +182,23 @@ static TEXT_FILES: &[&'static str] = &[
 ];
 
 /// Try to treat the path as a directory and list the contents as HTML.
-async fn maybe_list_dir(root_dir: &Path, path: &Path) -> Result<Option<Response<Body>>> {
-    let meta = tokio::fs::metadata(path).await?;
+async fn maybe_list_dir(config: &Config, path: &Path) -> Result<Option<Response<Body>>> {
+    let meta = match tokio::fs::metadata(path).await {
+        Ok(meta) => Ok(meta),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => Err(e),
+    }?;
     if meta.is_dir() {
-        Ok(Some(list_dir(&root_dir, path).await?))
+        let path = config.check_in_root_dir(path.to_owned())?;
+        Ok(Some(list_dir(&config.root_dir, path).await?))
     } else {
         Ok(None)
     }
 }
 
 /// List the contents of a directory as HTML.
-async fn list_dir(root_dir: &Path, path: &Path) -> Result<Response<Body>> {
-    let up_dir = path.join("..");
-    let path = path.to_owned();
+async fn list_dir(root_dir: &Path, path: PathBuf) -> Result<Response<Body>> {
+    let up_dir = path.clone().join("..");
     let dents = tokio::fs::read_dir(path).await?;
     let dents = dents.filter_map(|dent| match dent {
         Ok(dent) => future::ready(Some(dent)),
