@@ -27,3 +27,4 @@ serde = { version = "1.0.102", features = ["derive"] }
 tokio = "0.2.0-alpha.6"
 tokio-fs = "0.2.0-alpha.6"
 structopt = "0.2.18"
+base64 = "0.13.0"

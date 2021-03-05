@@ -9,11 +9,11 @@ use futures::future;
 use futures::stream::StreamExt;
 use futures::FutureExt;
 use handlebars::Handlebars;
-use http::header::{HeaderMap, HeaderValue};
+use http::header::{self, HeaderMap, HeaderValue};
 use http::status::StatusCode;
 use http::Uri;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{header, Body, Method, Request, Response, Server};
+use hyper::{Body, Method, Request, Response, Server};
 use log::{debug, error, info, trace, warn};
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
@@ -21,6 +21,7 @@ use std::error::Error as StdError;
 use std::io;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str;
 use std::sync::Arc;
 use structopt::StructOpt;
 use tokio::codec::{BytesCodec, FramedRead};
@@ -76,6 +77,10 @@ pub struct Config {
     /// like the internet.
     #[structopt(long = "allow-escape-root")]
     allow_escape_root: bool,
+
+    /// Enable basic http auth with the given password
+    #[structopt(long = "auth", parse(try_from_str))]
+    auth: Option<Auth>,
 }
 
 impl Config {
@@ -106,6 +111,67 @@ impl Config {
         } else {
             return Err(Error::EntityNotInRoot);
         }
+    }
+
+    /// Check if the request has the required password (if we set one).
+    fn check_auth(&self, req: &Request<Body>) -> bool {
+        // This macro avoids us having to write out a match for every step.
+        macro_rules! err_to_ret {
+            ($e:expr) => {
+                match $e {
+                    Ok(v) => v,
+                    Err(_) => return false,
+                }
+            };
+        }
+
+        let reference_auth = match self.auth.as_ref() {
+            Some(auth) => auth,
+            // If there is no password, carry on serving the request.
+            None => return true,
+        };
+
+        // Get and decode the auth token
+        let headers = req.headers();
+        let auth_header = match headers.get(header::AUTHORIZATION) {
+            Some(header) => header,
+            // If the header isn't set, then send a request for auth.
+            None => return false,
+        };
+        let auth_header = err_to_ret!(auth_header.to_str());
+
+        if !matches!(auth_header.get(..6), Some(s) if s.eq_ignore_ascii_case("basic ")) {
+            return false;
+        }
+        let auth = match auth_header.get(6..).map(|s| s.trim()) {
+            Some(auth) => auth,
+            None => return false,
+        };
+        let auth = err_to_ret!(base64::decode(auth));
+        let auth = err_to_ret!(str::from_utf8(&auth));
+        let auth: Auth = err_to_ret!(auth.parse());
+        *reference_auth == auth
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct Auth {
+    username: String,
+    password: String,
+}
+
+impl std::str::FromStr for Auth {
+    type Err = &'static str;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        // Split into <username> : <password>
+        let mut iter = s.splitn(2, ':');
+        let username = iter.next().unwrap(); // cannot fail
+        let password = iter.next().unwrap_or("");
+
+        Ok(Auth {
+            username: username.to_owned(),
+            password: password.to_owned(),
+        })
     }
 }
 
@@ -183,6 +249,16 @@ async fn serve_or_error(config: Arc<Config>, req: Request<Body>) -> Result<Respo
     // response otherwise.
     if let Some(resp) = handle_unsupported_request(&req) {
         return resp;
+    }
+
+    // If there is a password, check the password. Return unauthorized if it was missing/incorrect
+    if !config.check_auth(&req) {
+        let mut auth_value =
+            HeaderValue::from_static(r#"Basic relm="User Visible Realm", charset="UTF-8""#);
+        auth_value.set_sensitive(true);
+        let mut headers = HeaderMap::new();
+        headers.insert(header::WWW_AUTHENTICATE, auth_value);
+        return make_error_response_from_code_and_headers(StatusCode::UNAUTHORIZED, headers);
     }
 
     // Serve the requested file.
