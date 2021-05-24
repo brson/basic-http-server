@@ -240,6 +240,7 @@ async fn respond_with_file(path: PathBuf) -> Result<Response<Body>> {
         .status(StatusCode::OK)
         .header(header::CONTENT_LENGTH, len as u64)
         .header(header::CONTENT_TYPE, mime_type.as_ref())
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(body)?;
 
     Ok(resp)
