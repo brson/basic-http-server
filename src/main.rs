@@ -170,7 +170,7 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
     if byte_ranges.is_empty() {
         Ok(respond_with_file(path).await?)
     } else {
-        todo!()
+        Ok(respond_with_file_ranges(path, &byte_ranges).await?)
     }
 }
 
@@ -259,6 +259,58 @@ async fn respond_with_file(path: PathBuf) -> Result<Response<Body>> {
     let resp = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_LENGTH, len as u64)
+        .header(header::CONTENT_TYPE, mime_type.as_ref())
+        .header(header::ACCEPT_RANGES, "bytes")
+        .body(body)?;
+
+    Ok(resp)
+}
+
+async fn respond_with_file_ranges(
+    path: PathBuf,
+    ranges: &[HttpRange],
+) -> Result<Response<Body>> {
+    assert!(ranges.len() > 0);
+    if ranges.len() > 1 {
+        return Err(Error::MultipartRange);
+    }
+
+    let range = ranges[0];
+
+    let mime_type = file_path_mime(&path);
+
+    let mut file = File::open(path).await?;
+
+    let meta = file.metadata().await?;
+    let len = meta.len();
+
+    use tokio::io::{AsyncReadExt};
+
+    file.seek(std::io::SeekFrom::Start(range.start as _)).await?; // fixme cast
+    let file = file.take(range.length as _); // fixme cast
+    let codec = BytesCodec::new();
+    let stream = FramedRead::new(file, codec);
+    let stream = stream.map(|b| b.map(BytesMut::freeze));
+    //let stream = stream.skip(range.start)
+    //    .take(range.length);
+    let body = Body::wrap_stream(stream);
+
+    let content_range = {
+        let end_byte = range.start.checked_add(range.length)
+            .map(|n| n.checked_sub(1))
+            .flatten().expect("overflow"); // todo
+        format!(
+            "bytes {}-{}/{}",
+            range.start,
+            end_byte,
+            len,
+        )
+    };
+
+    let resp = Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header(header::CONTENT_RANGE, content_range)
+        .header(header::CONTENT_LENGTH, range.length)
         .header(header::CONTENT_TYPE, mime_type.as_ref())
         .header(header::ACCEPT_RANGES, "bytes")
         .body(body)?;
@@ -515,6 +567,9 @@ pub enum Error {
 
     #[display(fmt = "requested URI is not UTF-8")]
     UriNotUtf8,
+
+    #[display(fmt = "unsupported multipart range request")]
+    MultipartRange,
 }
 
 impl StdError for Error {
@@ -531,6 +586,7 @@ impl StdError for Error {
             HttpRangeParse(_) => None,
             UriNotAbsolute => None,
             UriNotUtf8 => None,
+            MultipartRange => None,
         }
     }
 }
