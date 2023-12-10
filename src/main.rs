@@ -164,7 +164,28 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
 
     let path = local_path_with_maybe_index(req.uri(), &root_dir)?;
 
-    Ok(respond_with_file(path).await?)
+    let byte_ranges = req_byte_ranges(req, &path)?;
+
+    if byte_ranges.is_empty() {
+        Ok(respond_with_file(path).await?)
+    } else {
+        todo!()
+    }
+}
+
+use http_range::HttpRange;
+
+fn req_byte_ranges(
+    req: &Request<Body>,
+    path: &Path,
+) -> Result<Vec<HttpRange>> {
+    if let Some(header) = req.headers().get(header::RANGE) {
+        let metadata = path.metadata()?;
+        let len = metadata.len();
+        Ok(HttpRange::parse_bytes(header.as_bytes(), len)?)
+    } else {
+        Ok(vec![])
+    }
 }
 
 /// Try to do a 302 redirect for directories.
@@ -240,6 +261,7 @@ async fn respond_with_file(path: PathBuf) -> Result<Response<Body>> {
         .status(StatusCode::OK)
         .header(header::CONTENT_LENGTH, len as u64)
         .header(header::CONTENT_TYPE, mime_type.as_ref())
+        .header(header::ACCEPT_RANGES, "bytes")
         .body(body)?;
 
     Ok(resp)
@@ -486,6 +508,9 @@ pub enum Error {
     #[display(fmt = "failed to render template")]
     TemplateRender(handlebars::TemplateRenderError),
 
+    #[display(fmt = "failed to parse range header")]
+    HttpRangeParse(http_range::HttpRangeParseError),
+
     #[display(fmt = "requested URI is not an absolute path")]
     UriNotAbsolute,
 
@@ -504,6 +529,7 @@ impl StdError for Error {
             Hyper(e) => Some(e),
             AddrParse(e) => Some(e),
             TemplateRender(e) => Some(e),
+            HttpRangeParse(_) => None,
             UriNotAbsolute => None,
             UriNotUtf8 => None,
         }
@@ -531,5 +557,11 @@ impl From<hyper::Error> for Error {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Error {
         Error::Io(e)
+    }
+}
+
+impl From<http_range::HttpRangeParseError> for Error {
+    fn from(e: http_range::HttpRangeParseError) -> Error {
+        Error::HttpRangeParse(e)
     }
 }
