@@ -12,6 +12,7 @@ use handlebars::Handlebars;
 use http::header::{HeaderMap, HeaderValue};
 use http::status::StatusCode;
 use http::Uri;
+use http_range::HttpRange;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Method, Request, Response, Server};
 use log::{debug, error, info, trace, warn};
@@ -172,8 +173,6 @@ async fn serve_file(req: &Request<Body>, root_dir: &PathBuf) -> Result<Response<
         todo!()
     }
 }
-
-use http_range::HttpRange;
 
 fn req_byte_ranges(
     req: &Request<Body>,
