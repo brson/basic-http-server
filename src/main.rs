@@ -288,11 +288,10 @@ async fn respond_with_file_ranges(
 
     file.seek(std::io::SeekFrom::Start(range.start as _)).await?; // fixme cast
     let file = file.take(range.length as _); // fixme cast
+
     let codec = BytesCodec::new();
     let stream = FramedRead::new(file, codec);
     let stream = stream.map(|b| b.map(BytesMut::freeze));
-    //let stream = stream.skip(range.start)
-    //    .take(range.length);
     let body = Body::wrap_stream(stream);
 
     let content_range = {
