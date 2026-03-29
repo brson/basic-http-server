@@ -10,7 +10,7 @@ use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::Router;
 use clap::Parser;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use tower_http::services::ServeDir;
 use tracing::info;
@@ -23,8 +23,16 @@ mod server;
 #[command(version, about = "A basic HTTP file server")]
 pub struct Config {
     /// The IP:PORT combination.
-    #[arg(short = 'a', long = "addr", default_value = "127.0.0.1:4000")]
-    addr: SocketAddr,
+    #[arg(short = 'a', long = "addr", conflicts_with_all = ["port", "public"])]
+    addr: Option<SocketAddr>,
+
+    /// Port number.
+    #[arg(short = 'p', long = "port")]
+    port: Option<u16>,
+
+    /// Listen on all interfaces (0.0.0.0) instead of localhost.
+    #[arg(long = "public")]
+    public: bool,
 
     /// The root directory for serving files.
     #[arg(default_value = ".")]
@@ -33,6 +41,22 @@ pub struct Config {
     /// Enable developer extensions.
     #[arg(short = 'x')]
     use_extensions: bool,
+}
+
+impl Config {
+    /// Resolve the listen address from the combination of --addr, --port, and --public.
+    fn listen_addr(&self) -> SocketAddr {
+        if let Some(addr) = self.addr {
+            return addr;
+        }
+        let ip = if self.public {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        } else {
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        };
+        let port = self.port.unwrap_or(4000);
+        SocketAddr::new(ip, port)
+    }
 }
 
 #[tokio::main]
@@ -48,15 +72,16 @@ async fn main() {
         .init();
 
     let config = Config::parse();
+    let addr = config.listen_addr();
 
     info!("basic-http-server {}", env!("CARGO_PKG_VERSION"));
-    info!("addr: http://{}", config.addr);
+    info!("addr: http://{}", addr);
     info!("root dir: {}", config.root_dir.display());
     info!("extensions: {}", config.use_extensions);
 
     let app = build_router(&config);
 
-    let listener = tokio::net::TcpListener::bind(config.addr)
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("failed to bind address");
 
