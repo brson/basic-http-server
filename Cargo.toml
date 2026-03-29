@@ -2,12 +2,16 @@
 name = "basic-http-server"
 version = "0.9.0"
 authors = ["Brian Anderson <andersrb@gmail.com>"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 description = "A simple static HTTP file server, for learning and local development"
 homepage = "https://github.com/brson/basic-http-server"
 repository = "https://github.com/brson/basic-http-server"
 readme = "README.md"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
+keywords = ["http", "server", "static", "file-server"]
+categories = ["command-line-utilities", "web-programming::http-server"]
+exclude = ["tests/"]
 
 [dependencies]
 axum = "0.8"
