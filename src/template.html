@@ -6,18 +6,47 @@
     <title>{title}</title>
 
     <style type="text/css">
+        :root {
+            color-scheme: light dark;
+        }
+
         /* from https://jrl.ninja/etc/1/ */
         main {
             max-width: 70ch;
             padding: 2ch;
             margin: auto;
         }
-    </style>
 
-    <style type="text/css">
-      main img {
-        max-width: 70ch;
-      }
+        main img {
+            max-width: 70ch;
+        }
+
+        a {
+            color: #2563eb;
+        }
+        a:visited {
+            color: #7c3aed;
+        }
+
+        pre, code {
+            background: #f3f4f6;
+        }
+        pre {
+            padding: 1ch;
+            overflow-x: auto;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            a {
+                color: #60a5fa;
+            }
+            a:visited {
+                color: #a78bfa;
+            }
+            pre, code {
+                background: #1e293b;
+            }
+        }
     </style>
   </head>
 
