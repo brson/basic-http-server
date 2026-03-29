@@ -1,29 +1,29 @@
 [package]
 name = "basic-http-server"
-version = "0.8.1"
+version = "0.9.0"
 authors = ["Brian Anderson <andersrb@gmail.com>"]
 license = "MIT/Apache-2.0"
 description = "A simple static HTTP file server, for learning and local development"
 homepage = "https://github.com/brson/basic-http-server"
 repository = "https://github.com/brson/basic-http-server"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-bytes = "0.4.12"
-clap = "2.33.0"
-comrak = "0.6.2"
-derive_more = "0.15.0"
-env_logger = "0.6.2"
-futures-preview = "0.3.0-alpha.19"
-handlebars = "1.1.0"
-http = "0.1.19"
-hyper = { version = "0.13.0-alpha.4", features = ["unstable-stream"] }
-log = "0.4.8"
-mime = "0.3.14"
-mime_guess = "2.0.1"
-percent-encoding = "2.1.0"
-serde = { version = "1.0.102", features = ["derive"] }
-tokio = "0.2.0-alpha.6"
-tokio-fs = "0.2.0-alpha.6"
-structopt = "0.2.18"
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+comrak = "0.34"
+http = "1"
+mime = "0.3"
+mime_guess = "2"
+percent-encoding = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tempfile = "3"
