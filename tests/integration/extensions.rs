@@ -73,5 +73,5 @@ async fn method_not_allowed_with_extensions() {
 
     assert_eq!(resp.status(), 405);
     let allow = resp.headers().get("allow").unwrap().to_str().unwrap();
-    assert_eq!(allow, "GET");
+    assert_eq!(allow, "GET, HEAD");
 }

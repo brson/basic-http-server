@@ -113,9 +113,9 @@ fn build_router(config: &Config) -> Router {
 /// Returns 405 Method Not Allowed with an `Allow: GET` header for any
 /// non-GET request.
 async fn method_filter(req: Request, next: Next) -> Response {
-    if req.method() != Method::GET {
+    if req.method() != Method::GET && req.method() != Method::HEAD {
         let mut headers = HeaderMap::new();
-        headers.insert(header::ALLOW, HeaderValue::from_static("GET"));
+        headers.insert(header::ALLOW, HeaderValue::from_static("GET, HEAD"));
         return server::error_response_with_headers(StatusCode::METHOD_NOT_ALLOWED, headers);
     }
     next.run(req).await
