@@ -10,7 +10,8 @@ A simple static HTTP server, for learning and local development.
 
 - _for local development_. It serves static HTML content, and with the `-x`
    flag, provides convenience features useful for creating developer
-   documentation, including markdown rendering and directory listing.
+   documentation, including markdown rendering with syntax highlighting,
+   and directory listing.
 
 The core server setup is contained in [`main.rs`]. Error types and HTML
 rendering are in [`server.rs`]. The developer extensions are in [`ext/`],
@@ -29,12 +30,19 @@ with each extension implemented as tower middleware.
 When passed the `-x` flag, `basic-http-server` enables additional conveniences
 useful for developing documentation locally. Those extensions are:
 
-- Rendering files with the ".md" extension as Markdown.
+- Rendering files with the ".md" extension as Markdown, with syntax
+  highlighting for fenced code blocks via [syntect]. Supports Rust, Python,
+  Java, Bash, Go, C, JavaScript, TypeScript, and many other languages.
 
 - Listing directories when no "index.html" file is found.
 
 - Serving common source code files as "text/plain" so they are
   rendered in the browser.
+
+All rendered pages support dark and light mode, following the
+system preference.
+
+[syntect]: https://github.com/trishume/syntect
 
 This makes `basic-http-server` useful for the following scenarios:
 
@@ -65,6 +73,18 @@ To turn on the developer extensions, pass `-x`:
 $ basic-http-server -x
 ```
 
+Set a custom port with `-p`:
+
+```sh
+$ basic-http-server -x -p8080
+```
+
+Listen on all interfaces with `--public`:
+
+```sh
+$ basic-http-server -x -p8080 --public
+```
+
 To increase logging verbosity use `RUST_LOG`:
 
 ```sh
@@ -80,7 +100,9 @@ Arguments:
   [ROOT_DIR]  The root directory for serving files [default: .]
 
 Options:
-  -a, --addr <ADDR>  The IP:PORT combination [default: 127.0.0.1:4000]
+  -a, --addr <ADDR>  The IP:PORT combination
+  -p, --port <PORT>  Port number [default: 4000]
+      --public       Listen on all interfaces (0.0.0.0) instead of localhost
   -x                 Enable developer extensions
   -h, --help         Print help
   -V, --version      Print version
