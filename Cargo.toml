@@ -16,7 +16,8 @@ exclude = ["tests/"]
 [dependencies]
 axum = "0.8"
 clap = { version = "4", features = ["derive"] }
-comrak = "0.34"
+comrak = { version = "0.34", features = ["syntect"] }
+syntect = "5"
 http = "1"
 mime = "0.3"
 mime_guess = "2"

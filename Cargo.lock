@@ -149,6 +149,7 @@ dependencies = [
  "mime_guess",
  "percent-encoding",
  "reqwest",
+ "syntect",
  "tempfile",
  "thiserror",
  "tokio",
