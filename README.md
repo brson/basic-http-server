@@ -5,20 +5,23 @@ A simple static HTTP server, for learning and local development.
 `basic-http-server` is designed for two purposes:
 
 - _as a teaching tool_. It is a simple and well-commented example of
-  basic [`tokio`], [`hyper`], and asynchronous Rust programming,
+  basic [`axum`], [`tower`], [`tokio`], and asynchronous Rust programming,
   with `async` / `await`.
 
 - _for local development_. It serves static HTML content, and with the `-x`
    flag, provides convenience features useful for creating developer
    documentation, including markdown rendering and directory listing.
- 
-The entire reference source for setting up a `hyper` HTTP server is contained in
-[`main.rs`]. The [`ext.rs`] file contains developer extensions.
 
+The core server setup is contained in [`main.rs`]. Error types and HTML
+rendering are in [`server.rs`]. The developer extensions are in [`ext/`],
+with each extension implemented as tower middleware.
+
+[`axum`]: https://github.com/tokio-rs/axum
+[`tower`]: https://github.com/tower-rs/tower
 [`tokio`]: https://github.com/tokio-rs/tokio
-[`hyper`]: https://github.com/hyperium/hyper
 [`main.rs`]: src/main.rs
-[`ext.rs`]: src/ext.rs
+[`server.rs`]: src/server.rs
+[`ext/`]: src/ext/
 
 
 ## Developer extensions
@@ -71,20 +74,16 @@ RUST_LOG=basic_http_server=trace basic-http-server -x
 Command line arguments:
 
 ```
-USAGE:
-        basic-http-server [FLAGS] [OPTIONS] [ARGS]
+Usage: basic-http-server [OPTIONS] [ROOT_DIR]
 
-FLAGS:
-    -x               Enable developer extensions
-    -h, --help       Prints help information
-    -V, --version    Prints version information
+Arguments:
+  [ROOT_DIR]  The root directory for serving files [default: .]
 
-OPTIONS:
-    -a, --addr <ADDR>    Sets the IP:PORT combination (default "127.0.0.1:4000")
-
-ARGS:
-    ROOT    Sets the root directory (default ".")
-
+Options:
+  -a, --addr <ADDR>  The IP:PORT combination [default: 127.0.0.1:4000]
+  -x                 Enable developer extensions
+  -h, --help         Print help
+  -V, --version      Print version
 ```
 
 
