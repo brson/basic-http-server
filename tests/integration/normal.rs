@@ -126,6 +126,16 @@ async fn accept_ranges_header() {
 }
 
 #[tokio::test]
+async fn cache_control_no_cache() {
+    let server = TestServer::start(&fixtures_dir(), false);
+    let resp = server.get("/index.html").await;
+
+    assert_eq!(resp.status(), 200);
+    let cc = resp.headers().get("cache-control").unwrap().to_str().unwrap();
+    assert_eq!(cc, "no-cache");
+}
+
+#[tokio::test]
 async fn directory_without_index_returns_404() {
     let server = TestServer::start(&fixtures_dir(), false);
     // subdir has no index.html, so without -x it should 404.

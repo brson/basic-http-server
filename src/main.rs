@@ -113,6 +113,7 @@ fn build_router(config: &Config) -> Router {
         Router::new()
             .fallback_service(serve_dir)
             .layer(middleware::from_fn(method_filter))
+            .layer(middleware::from_fn(cache_control))
             .layer(middleware::from_fn_with_state(
                 config_clone.root_dir.clone(),
                 ext::source_text_middleware,
@@ -129,8 +130,24 @@ fn build_router(config: &Config) -> Router {
         Router::new()
             .fallback_service(serve_dir)
             .layer(middleware::from_fn(method_filter))
+            .layer(middleware::from_fn(cache_control))
             .layer(middleware::from_fn(not_found_html))
     }
+}
+
+/// Middleware that sets `Cache-Control: no-cache` on all responses.
+///
+/// This ensures clients always revalidate with the server before using a
+/// cached copy. They still benefit from conditional requests (304 Not
+/// Modified via `Last-Modified` / `ETag`), but won't silently serve stale
+/// files — important for a local development server.
+async fn cache_control(req: Request, next: Next) -> Response {
+    let mut resp = next.run(req).await;
+    resp.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    );
+    resp
 }
 
 /// Middleware that enforces GET-only requests.
