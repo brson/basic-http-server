@@ -4,14 +4,15 @@
 //! tower-http, and tokio. It serves static files from a root directory, with
 //! optional developer extensions enabled by the `-x` flag.
 
+use axum::Router;
 use axum::extract::Request;
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use axum::Router;
 use clap::Parser;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing::info;
 
@@ -90,9 +91,7 @@ async fn main() {
     // Also print to stderr without buffering, for integration test harness.
     eprintln!("listening on {}", local_addr);
 
-    axum::serve(listener, app)
-        .await
-        .expect("server error");
+    axum::serve(listener, app).await.expect("server error");
 }
 
 /// Build the axum router.
@@ -103,13 +102,18 @@ async fn main() {
 fn build_router(config: &Config) -> Router {
     // ServeDir handles: static files with streaming, MIME detection,
     // Content-Length, index.html fallback, and trailing-slash redirects.
-    let serve_dir = ServeDir::new(&config.root_dir)
-        .append_index_html_on_directories(true);
+    let serve_dir = ServeDir::new(&config.root_dir).append_index_html_on_directories(true);
 
     // When extensions are enabled, wrap ServeDir with extension middleware.
     // When disabled, the router is a clean, minimal static file server.
     if config.use_extensions {
         let config_clone = config.clone();
+        let cors_layer = CorsLayer::new()
+            // allow `GET` when accessing the resource
+            .allow_methods([Method::GET])
+            // allow requests from any origin
+            .allow_origin(Any);
+
         Router::new()
             .fallback_service(serve_dir)
             .layer(middleware::from_fn(method_filter))
@@ -126,6 +130,7 @@ fn build_router(config: &Config) -> Router {
                 config_clone.root_dir.clone(),
                 ext::markdown_middleware,
             ))
+            .layer(cors_layer)
     } else {
         Router::new()
             .fallback_service(serve_dir)
@@ -143,10 +148,8 @@ fn build_router(config: &Config) -> Router {
 /// files — important for a local development server.
 async fn cache_control(req: Request, next: Next) -> Response {
     let mut resp = next.run(req).await;
-    resp.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-cache"),
-    );
+    resp.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     resp
 }
 
