@@ -10,7 +10,8 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use comrak::plugins::syntect::SyntectAdapter;
-use comrak::{markdown_to_html_with_plugins, Options, Plugins};
+use comrak::options::Plugins;
+use comrak::{markdown_to_html_with_plugins, Options};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use syntect::highlighting::ThemeSet;
@@ -61,7 +62,7 @@ async fn render_markdown(uri_path: &str, root_dir: &PathBuf) -> Result<Response,
     // Render with GitHub-flavored Markdown options.
     let mut options = Options::default();
     options.extension.autolink = true;
-    options.extension.header_ids = Some("user-content-".to_string());
+    options.extension.header_id_prefix = Some("user-content-".to_string());
     options.extension.table = true;
     options.extension.strikethrough = true;
     options.extension.tagfilter = true;
